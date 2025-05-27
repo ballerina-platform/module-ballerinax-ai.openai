@@ -65,7 +65,7 @@ public isolated client class Provider {
             proxy: connectionConfig.proxy,
             validation: connectionConfig.validation
         };
-        chat:Client|error llmClient = new (openAiConfig);
+        chat:Client|error llmClient = new (openAiConfig, serviceUrl);
         if llmClient is error {
             return error ai:Error("Failed to initialize OpenAiProvider", llmClient);
         }
