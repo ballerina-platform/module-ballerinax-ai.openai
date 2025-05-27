@@ -30,7 +30,7 @@ Here's how to initialize the Model Provider:
 import ballerina/ai;
 import ballerinax/ai.model.provider.openai;
 
-final ai:ModelProvider  openAiModel = check new openai:Provider("openAiApiKey", modelType = openai:GPT_4O);
+final ai:ModelProvider openAiModel = check new openai:Provider("openAiApiKey", modelType = openai:GPT_4O);
 ```
 
 ### Step 4: Invoke chat completion
