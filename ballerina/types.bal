@@ -108,3 +108,8 @@ public enum OPEN_AI_MODEL_NAMES {
     GPT_4_1_NANO_2025_04_14 = "gpt-4.1-nano-2025-04-14",
     CHATGPT_4O_LATEST = "chatgpt-4o-latest"
 }
+
+type ToolInfo readonly & record {|
+    string toolList;
+    string toolIntro;
+|};
