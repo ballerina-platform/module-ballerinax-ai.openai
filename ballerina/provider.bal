@@ -127,7 +127,11 @@ public isolated client class Provider {
         boolean supportsToolCalls = isToolCallSupported(self.modelType);
         ai:FunctionCall[]? toolCalls = message.toolCalls;
         if supportsToolCalls && toolCalls is ai:FunctionCall[] {
-            assistantMessage.function_call = toolCalls[0];
+            ai:FunctionCall functionCall = toolCalls[0];
+            assistantMessage.function_call = {
+                name: functionCall.name,
+                arguments: functionCall.arguments.toJsonString()
+            };
         } else if !supportsToolCalls && toolCalls is ai:FunctionCall[] {
             assistantMessage.content = formatFunctionCallToJsonWithFences(toolCalls[0]);
         }
@@ -142,33 +146,33 @@ public isolated client class Provider {
 
     private isolated function convertResponseToAssistantMessage(chat:ChatCompletionResponseMessage? message)
     returns ai:ChatAssistantMessage|ai:LlmError {
-        boolean hasToolCallResponse = isToolCallSupported(self.modelType);
-        ai:ChatAssistantMessage chatAssistantMessage = {role: ai:ASSISTANT};
-        if hasToolCallResponse {
-            chatAssistantMessage.content = message?.content;
-            chat:ChatCompletionRequestAssistantMessage_function_call? functionCall = message?.function_call;
-            if functionCall is chat:ChatCompletionRequestAssistantMessage_function_call {
-                chatAssistantMessage.toolCalls = [
-                    {
-                        name: functionCall.name,
-                        arguments: functionCall.arguments
-                    }
-                ];
-            }
-            return chatAssistantMessage;
-        }
-        ai:LlmToolResponse|ai:LlmChatResponse parsedReActResponse = check parseReActLlmResponse(message?.content);
-        if parsedReActResponse is ai:LlmToolResponse {
-            chatAssistantMessage.toolCalls = [
-                {
-                    name: parsedReActResponse.name,
-                    arguments: parsedReActResponse.arguments.toJsonString()
+        do {
+            boolean hasToolCallResponse = isToolCallSupported(self.modelType);
+            ai:ChatAssistantMessage chatAssistantMessage = {role: ai:ASSISTANT};
+            if hasToolCallResponse {
+                chatAssistantMessage.content = message?.content;
+                chat:ChatCompletionRequestAssistantMessage_function_call? functionCall = message?.function_call;
+                if functionCall is chat:ChatCompletionRequestAssistantMessage_function_call {
+                    json arguments = check functionCall.arguments.fromJsonString();
+                    chatAssistantMessage.toolCalls = [
+                        {
+                            name: functionCall.name,
+                            arguments: check arguments.cloneWithType()
+                        }
+                    ];
                 }
-            ];
+                return chatAssistantMessage;
+            }
+            ai:LlmToolResponse|ai:LlmChatResponse parsedReActResponse = check parseReActLlmResponse(message?.content);
+            if parsedReActResponse is ai:LlmToolResponse {
+                chatAssistantMessage.toolCalls = [parsedReActResponse];
+                return chatAssistantMessage;
+            }
+            // Set the "Final Answer" action's input to the chat assistant message content
+            chatAssistantMessage.content = parsedReActResponse.content;
             return chatAssistantMessage;
+        } on fail error e {
+            return error ai:LlmError("Invalid or malformed arguments received in function call response.", e);
         }
-        // Set the "Final Answer" action's input to the chat assistant message content
-        chatAssistantMessage.content = parsedReActResponse.content;
-        return chatAssistantMessage;
     }
 }
