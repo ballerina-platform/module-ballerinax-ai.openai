@@ -89,7 +89,7 @@ isolated function extractToolInfo(ai:ChatCompletionFunctions[] tools) returns To
     };
 }
 
-isolated function parseReActLlmResponse(string? llmResponse) returns ai:LlmToolResponse|ai:LlmChatResponse|ai:LlmInvalidGenerationError {
+isolated function parseReActLlmResponse(string? llmResponse) returns LlmChatResponse|ai:LlmToolResponse|ai:LlmInvalidGenerationError {
     if llmResponse is () {
         return error ai:LlmInvalidGenerationError("Unable to extract the tool due to invalid generation", llmResponse = llmResponse);
     }

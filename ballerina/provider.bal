@@ -163,7 +163,7 @@ public isolated client class Provider {
                 }
                 return chatAssistantMessage;
             }
-            ai:LlmToolResponse|ai:LlmChatResponse parsedReActResponse = check parseReActLlmResponse(message?.content);
+            ai:LlmToolResponse|LlmChatResponse parsedReActResponse = check parseReActLlmResponse(message?.content);
             if parsedReActResponse is ai:LlmToolResponse {
                 chatAssistantMessage.toolCalls = [parsedReActResponse];
                 return chatAssistantMessage;

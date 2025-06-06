@@ -113,3 +113,7 @@ type ToolInfo readonly & record {|
     string toolList;
     string toolIntro;
 |};
+
+type LlmChatResponse record {|
+    string content;
+|};
