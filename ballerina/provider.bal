@@ -25,7 +25,7 @@ const DEFAULT_TEMPERATURE = 0.7d;
 public isolated client class Provider {
     *ai:ModelProvider;
     private final chat:Client llmClient;
-    private final string modelType;
+    private final OPEN_AI_MODEL_NAMES modelType;
 
     # Initializes the OpenAI model with the given connection configuration and model configuration.
     #
@@ -84,11 +84,13 @@ public isolated client class Provider {
         chat:CreateChatCompletionRequest request = {
             stop,
             model: self.modelType,
-            messages: self.mapToChatCompletionRequestMessage(messages)
+            messages: self.prepareCompletionRequestMessages(messages, tools)
         };
-        if tools.length() > 0 {
+        boolean supportsToolCalls = isToolCallSupported(self.modelType);
+        if supportsToolCalls && tools.length() > 0 {
             request.functions = tools;
         }
+
         chat:CreateChatCompletionResponse|error response = self.llmClient->/chat/completions.post(request);
         if response is error {
             return error ai:LlmConnectionError("Error while connecting to the model", response);
@@ -97,38 +99,80 @@ public isolated client class Provider {
         if choices.length() == 0 {
             return error ai:LlmInvalidResponseError("Empty response from the model when using function call API");
         }
-        chat:ChatCompletionResponseMessage? message = choices[0].message;
-        ai:ChatAssistantMessage chatAssistantMessage = {role: ai:ASSISTANT, content: message?.content};
-        chat:ChatCompletionRequestAssistantMessage_function_call? function_call = message?.function_call;
-        if function_call is chat:ChatCompletionRequestAssistantMessage_function_call {
-            chatAssistantMessage.toolCalls = [
-                {
-                    name: function_call.name,
-                    arguments: function_call.arguments
-                }
-            ];
-        }
-        return chatAssistantMessage;
+
+        return self.convertResponseToAssistantMessage(choices[0].message);
     }
 
-    private isolated function mapToChatCompletionRequestMessage(ai:ChatMessage[] messages)
-        returns chat:ChatCompletionRequestMessage[] {
+    private isolated function prepareCompletionRequestMessages(ai:ChatMessage[] messages,
+            ai:ChatCompletionFunctions[] tools) returns chat:ChatCompletionRequestMessage[] {
         chat:ChatCompletionRequestMessage[] chatCompletionRequestMessages = [];
+        boolean supportsToolCalls = isToolCallSupported(self.modelType);
         foreach ai:ChatMessage message in messages {
-            if message is ai:ChatAssistantMessage {
-                chat:ChatCompletionRequestAssistantMessage assistantMessage = {role: ai:ASSISTANT};
-                ai:FunctionCall[]? toolCalls = message.toolCalls;
-                if toolCalls is ai:FunctionCall[] {
-                    assistantMessage.function_call = toolCalls[0];
-                }
-                if message?.content is string {
-                    assistantMessage.content = message?.content;
-                }
+            if message is ai:ChatSystemMessage && !supportsToolCalls {
+                string reactPrompt = constructReActPrompt(extractToolInfo(tools), message.content);
+                chatCompletionRequestMessages.push({role: ai:SYSTEM, content: reactPrompt});
+            } else if message is ai:ChatAssistantMessage {
+                chat:ChatCompletionRequestAssistantMessage assistantMessage = self.buildRequestAssistantMessage(message);
                 chatCompletionRequestMessages.push(assistantMessage);
             } else {
                 chatCompletionRequestMessages.push(message);
             }
         }
         return chatCompletionRequestMessages;
+    }
+
+    private isolated function buildRequestAssistantMessage(ai:ChatAssistantMessage message)
+    returns chat:ChatCompletionRequestAssistantMessage {
+        chat:ChatCompletionRequestAssistantMessage assistantMessage = {role: ai:ASSISTANT};
+        boolean supportsToolCalls = isToolCallSupported(self.modelType);
+        ai:FunctionCall[]? toolCalls = message.toolCalls;
+        if supportsToolCalls && toolCalls is ai:FunctionCall[] {
+            ai:FunctionCall functionCall = toolCalls[0];
+            assistantMessage.function_call = {
+                name: functionCall.name,
+                arguments: functionCall.arguments.toJsonString()
+            };
+        } else if !supportsToolCalls && toolCalls is ai:FunctionCall[] {
+            assistantMessage.content = formatFunctionCallToJsonWithFences(toolCalls[0]);
+        }
+        string? content = message?.content;
+        if supportsToolCalls && content is string {
+            assistantMessage.content = content;
+        } else if !supportsToolCalls && content is string {
+            assistantMessage.content = formatFinalAnswerToJsonWithFences(content);
+        }
+        return assistantMessage;
+    }
+
+    private isolated function convertResponseToAssistantMessage(chat:ChatCompletionResponseMessage? message)
+    returns ai:ChatAssistantMessage|ai:LlmError {
+        do {
+            boolean hasToolCallResponse = isToolCallSupported(self.modelType);
+            ai:ChatAssistantMessage chatAssistantMessage = {role: ai:ASSISTANT};
+            if hasToolCallResponse {
+                chatAssistantMessage.content = message?.content;
+                chat:ChatCompletionRequestAssistantMessage_function_call? functionCall = message?.function_call;
+                if functionCall is chat:ChatCompletionRequestAssistantMessage_function_call {
+                    json arguments = check functionCall.arguments.fromJsonString();
+                    chatAssistantMessage.toolCalls = [
+                        {
+                            name: functionCall.name,
+                            arguments: check arguments.cloneWithType()
+                        }
+                    ];
+                }
+                return chatAssistantMessage;
+            }
+            ai:LlmToolResponse|LlmChatResponse parsedReActResponse = check parseReActLlmResponse(message?.content);
+            if parsedReActResponse is ai:LlmToolResponse {
+                chatAssistantMessage.toolCalls = [parsedReActResponse];
+                return chatAssistantMessage;
+            }
+            // Set the "Final Answer" action's input to the chat assistant message content
+            chatAssistantMessage.content = parsedReActResponse.content;
+            return chatAssistantMessage;
+        } on fail error e {
+            return error ai:LlmError("Invalid or malformed arguments received in function call response.", e);
+        }
     }
 }
