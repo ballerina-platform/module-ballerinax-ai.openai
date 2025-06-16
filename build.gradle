@@ -60,7 +60,7 @@ allprojects {
 def moduleVersion = project.version.replace("-SNAPSHOT", "")
 
 task build {
-    dependsOn(':ai.model.provider.openai-ballerina:build')
+    dependsOn(':ai.openai-ballerina:build')
 }
 
 release {
