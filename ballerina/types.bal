@@ -109,6 +109,13 @@ public enum OPEN_AI_MODEL_NAMES {
     CHATGPT_4O_LATEST = "chatgpt-4o-latest"
 }
 
+@display {label: "OpenAI Embedding Model Names"}
+public enum OPEN_AI_EMBEDDING_MODEL_NAMES {
+    TEXT_EMBEDDING_3_SMALL = "text-embedding-3-small",
+    TEXT_EMBEDDING_3_LARGE = "text-embedding-3-large",
+    TEXT_EMBEDDING_ADA_002 = "text-embedding-ada-002"
+}
+
 type ToolInfo readonly & record {|
     string toolList;
     string toolIntro;
