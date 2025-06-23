@@ -2,7 +2,7 @@ import ballerina/ai;
 import ballerinax/openai.embeddings;
 
 # EmbeddingProvider provides an interface for interacting with OpenAI Embedding Models.
-public isolated client class EmbeddingProvider {
+public distinct isolated client class EmbeddingProvider {
     *ai:EmbeddingProvider;
     private final embeddings:Client embeddingsClient;
     private final string modelType;
