@@ -26,6 +26,8 @@ public isolated distinct client class ModelProvider {
     *ai:ModelProvider;
     private final chat:Client llmClient;
     private final OPEN_AI_MODEL_NAMES modelType;
+    private final decimal temperature;
+    private final int maxTokens;
 
     # Initializes the OpenAI model with the given connection configuration and model configuration.
     #
@@ -71,6 +73,8 @@ public isolated distinct client class ModelProvider {
         }
         self.llmClient = llmClient;
         self.modelType = modelType;
+        self.temperature = temperature;
+        self.maxTokens = maxTokens;
     }
 
     # Sends a chat request to the OpenAI model with the given messages and tools.
@@ -82,6 +86,8 @@ public isolated distinct client class ModelProvider {
     isolated remote function chat(ai:ChatMessage[] messages, ai:ChatCompletionFunctions[] tools, string? stop = ())
         returns ai:ChatAssistantMessage|ai:LlmError {
         chat:CreateChatCompletionRequest request = {
+            max_completion_tokens: self.maxTokens,
+            temperature: self.temperature,
             stop,
             model: self.modelType,
             messages: self.prepareCompletionRequestMessages(messages, tools)
