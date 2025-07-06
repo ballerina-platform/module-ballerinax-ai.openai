@@ -15,6 +15,7 @@
 // under the License.
 
 import ballerina/ai;
+import ballerina/jballerina.java;
 import ballerinax/openai.chat;
 
 const DEFAULT_OPENAI_SERVICE_URL = "https://api.openai.com/v1";
@@ -102,6 +103,16 @@ public isolated client class Provider {
 
         return self.convertResponseToAssistantMessage(choices[0].message);
     }
+
+    # Sends a chat request to the model and generates a value that belongs to the type
+    # corresponding to the type descriptor argument.
+    # 
+    # + prompt - The prompt to use in the chat messages
+    # + td - Type descriptor specifying the expected return type format
+    # + return - Generates a value that belongs to the type, or an error if generation fails
+    isolated remote function generate(ai:Prompt prompt, typedesc<anydata> td = <>) returns td|ai:Error = @java:Method {
+        'class: "io.ballerina.lib.ai.openai.Generator"
+    } external;
 
     private isolated function prepareCompletionRequestMessages(ai:ChatMessage[] messages,
             ai:ChatCompletionFunctions[] tools) returns chat:ChatCompletionRequestMessage[] {
