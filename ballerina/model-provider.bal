@@ -79,11 +79,11 @@ public isolated distinct client class ModelProvider {
 
     # Sends a chat request to the OpenAI model with the given messages and tools.
     #
-    # + messages - List of chat messages 
+    # + messages - List of chat messages or a single user message
     # + tools - Tool definitions to be used for the tool call
     # + stop - Stop sequence to stop the completion
     # + return - Function to be called, chat response or an error in-case of failures
-    isolated remote function chat(ai:ChatMessage[] messages, ai:ChatCompletionFunctions[] tools, string? stop = ())
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages, ai:ChatCompletionFunctions[] tools, string? stop = ())
         returns ai:ChatAssistantMessage|ai:LlmError {
         chat:CreateChatCompletionRequest request = {
             max_completion_tokens: self.maxTokens,
@@ -109,18 +109,38 @@ public isolated distinct client class ModelProvider {
         return self.convertResponseToAssistantMessage(choices[0].message);
     }
 
-    private isolated function prepareCompletionRequestMessages(ai:ChatMessage[] messages,
+    private isolated function prepareCompletionRequestMessages(ai:ChatMessage[]|ai:ChatUserMessage messages,
             ai:ChatCompletionFunctions[] tools) returns chat:ChatCompletionRequestMessage[] {
         chat:ChatCompletionRequestMessage[] chatCompletionRequestMessages = [];
+        if messages is ai:ChatUserMessage {
+            chatCompletionRequestMessages.push({
+                role: ai:USER,
+                content: getChatMessageStringContent(messages.content),
+                name: messages.name
+            });
+            return chatCompletionRequestMessages;
+        }
         boolean supportsToolCalls = isToolCallSupported(self.modelType);
         foreach ai:ChatMessage message in messages {
             if message is ai:ChatSystemMessage && !supportsToolCalls {
-                string reactPrompt = constructReActPrompt(extractToolInfo(tools), message.content);
+                string reactPrompt = constructReActPrompt(extractToolInfo(tools), getChatMessageStringContent(message.content));
                 chatCompletionRequestMessages.push({role: ai:SYSTEM, content: reactPrompt});
             } else if message is ai:ChatAssistantMessage {
                 chat:ChatCompletionRequestAssistantMessage assistantMessage = self.buildRequestAssistantMessage(message);
                 chatCompletionRequestMessages.push(assistantMessage);
-            } else {
+            } else if message is ai:ChatUserMessage {
+                chatCompletionRequestMessages.push({
+                    role: ai:USER,
+                    content: getChatMessageStringContent(message.content),
+                    name: message.name
+                });
+            } else if message is ai:ChatSystemMessage {
+                chatCompletionRequestMessages.push({
+                    role: ai:SYSTEM,
+                    content: getChatMessageStringContent(message.content),
+                    name: message.name
+                });
+            } else if message is ai:ChatFunctionMessage|ai:ChatAssistantMessage {
                 chatCompletionRequestMessages.push(message);
             }
         }
@@ -181,4 +201,22 @@ public isolated distinct client class ModelProvider {
             return error ai:LlmError("Invalid or malformed arguments received in function call response.", e);
         }
     }
+}
+
+isolated function getChatMessageStringContent(ai:Prompt|string prompt) returns string {
+    if prompt is string {
+        return prompt;
+    }
+    string str = prompt.strings[0];
+    anydata[] insertions = prompt.insertions;
+    foreach int i in 0 ..< insertions.length() {
+        anydata value = insertions[i];
+        string promptStr = prompt.strings[i + 1];
+        if value is ai:TextDocument {
+            str = str + value.content + promptStr;
+            continue;
+        }
+        str = str + value.toString() + promptStr;
+    }
+    return str.trim();
 }
