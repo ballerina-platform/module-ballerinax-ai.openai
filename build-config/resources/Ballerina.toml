@@ -13,9 +13,9 @@ graalvmCompatible = true
 
 [[platform.java21.dependency]]
 groupId = "io.ballerina.lib"
-artifactId = "ai.model.provider.openai-native"
+artifactId = "ai.openai-native"
 version = "@toml.version@"
-path = "../native/build/libs/ai.model.provider.openai-native-@project.version@.jar"
+path = "../native/build/libs/ai.openai-native-@project.version@.jar"
 
 [[dependency]]
 org = "ballerina"

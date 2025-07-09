@@ -61,12 +61,12 @@ allprojects {
 def moduleVersion = project.version.replace("-SNAPSHOT", "")
 
 task build {
-    dependsOn(':ai.model.provider.openai-compiler-plugin:build')
-    dependsOn(':ai.model.provider.openai-native:build')
-    dependsOn(':ai.model.provider.openai-ballerina:build')
+    dependsOn(':ai.openai-compiler-plugin:build')
+    dependsOn(':ai.openai-native:build')
+    dependsOn(':ai.openai-ballerina:build')
 }
 
-tasks.findByPath(':ai.model.provider.openai-ballerina:build').mustRunAfter(':ai.model.provider.openai-native:build')
+tasks.findByPath(':ai.openai-ballerina:build').mustRunAfter(':ai.openai-native:build')
 
 release {
     buildTasks = ['build']

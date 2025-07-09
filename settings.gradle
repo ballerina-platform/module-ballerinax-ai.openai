@@ -33,15 +33,15 @@ plugins {
 rootProject.name = 'module-ballerinax-ai.openai'
 
 include ':checkstyle'
-include ':ai.model.provider.openai-native'
-include ':ai.model.provider.openai-ballerina'
-include ':ai.model.provider.openai-compiler-plugin'
+include ':ai.openai-native'
+include ':ai.openai-ballerina'
+include ':ai.openai-compiler-plugin'
 
 project(':checkstyle').projectDir = file("build-config${File.separator}checkstyle")
-project(':ai.model.provider.openai-native').projectDir = file("native")
+project(':ai.openai-native').projectDir = file("native")
 
-project(':ai.model.provider.openai-ballerina').projectDir = file("ballerina")
-project(':ai.model.provider.openai-compiler-plugin').projectDir = file('compiler-plugin')
+project(':ai.openai-ballerina').projectDir = file("ballerina")
+project(':ai.openai-compiler-plugin').projectDir = file('compiler-plugin')
 
 gradleEnterprise {
     buildScan {
