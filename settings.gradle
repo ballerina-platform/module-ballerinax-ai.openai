@@ -29,11 +29,11 @@ plugins {
     id "com.gradle.enterprise" version "3.2"
 }
 
-rootProject.name = 'module-ballerinax-ai.model.provider.openai'
+rootProject.name = 'module-ballerinax-ai.openai'
 
-include ':ai.model.provider.openai-ballerina'
+include ':ai.openai-ballerina'
 
-project(':ai.model.provider.openai-ballerina').projectDir = file("ballerina")
+project(':ai.openai-ballerina').projectDir = file("ballerina")
 
 gradleEnterprise {
     buildScan {
