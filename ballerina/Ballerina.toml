@@ -10,3 +10,9 @@ version = "1.0.0"
 
 [platform.java21]
 graalvmCompatible = true
+
+[[dependency]]
+org="ballerina"
+name="ai"
+version="0.9.0"
+repository="local"

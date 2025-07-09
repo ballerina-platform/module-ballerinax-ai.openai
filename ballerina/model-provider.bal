@@ -83,14 +83,14 @@ public isolated distinct client class ModelProvider {
     # + tools - Tool definitions to be used for the tool call
     # + stop - Stop sequence to stop the completion
     # + return - Function to be called, chat response or an error in-case of failures
-    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages, ai:ChatCompletionFunctions[] tools, string? stop = ())
-        returns ai:ChatAssistantMessage|ai:LlmError {
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages, ai:ChatCompletionFunctions[] tools,
+            string? stop = ()) returns ai:ChatAssistantMessage|ai:Error {
         chat:CreateChatCompletionRequest request = {
             max_completion_tokens: self.maxTokens,
             temperature: self.temperature,
             stop,
             model: self.modelType,
-            messages: self.prepareCompletionRequestMessages(messages, tools)
+            messages: check self.prepareCompletionRequestMessages(messages, tools)
         };
         boolean supportsToolCalls = isToolCallSupported(self.modelType);
         if supportsToolCalls && tools.length() > 0 {
@@ -110,12 +110,12 @@ public isolated distinct client class ModelProvider {
     }
 
     private isolated function prepareCompletionRequestMessages(ai:ChatMessage[]|ai:ChatUserMessage messages,
-            ai:ChatCompletionFunctions[] tools) returns chat:ChatCompletionRequestMessage[] {
+            ai:ChatCompletionFunctions[] tools) returns chat:ChatCompletionRequestMessage[]|ai:Error {
         chat:ChatCompletionRequestMessage[] chatCompletionRequestMessages = [];
         if messages is ai:ChatUserMessage {
             chatCompletionRequestMessages.push({
                 role: ai:USER,
-                content: getChatMessageStringContent(messages.content),
+                content: check getChatMessageStringContent(messages.content),
                 name: messages.name
             });
             return chatCompletionRequestMessages;
@@ -123,7 +123,8 @@ public isolated distinct client class ModelProvider {
         boolean supportsToolCalls = isToolCallSupported(self.modelType);
         foreach ai:ChatMessage message in messages {
             if message is ai:ChatSystemMessage && !supportsToolCalls {
-                string reactPrompt = constructReActPrompt(extractToolInfo(tools), getChatMessageStringContent(message.content));
+                string reactPrompt = constructReActPrompt(extractToolInfo(tools),
+                        check getChatMessageStringContent(message.content));
                 chatCompletionRequestMessages.push({role: ai:SYSTEM, content: reactPrompt});
             } else if message is ai:ChatAssistantMessage {
                 chat:ChatCompletionRequestAssistantMessage assistantMessage = self.buildRequestAssistantMessage(message);
@@ -131,13 +132,13 @@ public isolated distinct client class ModelProvider {
             } else if message is ai:ChatUserMessage {
                 chatCompletionRequestMessages.push({
                     role: ai:USER,
-                    content: getChatMessageStringContent(message.content),
+                    content: check getChatMessageStringContent(message.content),
                     name: message.name
                 });
             } else if message is ai:ChatSystemMessage {
                 chatCompletionRequestMessages.push({
                     role: ai:SYSTEM,
-                    content: getChatMessageStringContent(message.content),
+                    content: check getChatMessageStringContent(message.content),
                     name: message.name
                 });
             } else if message is ai:ChatFunctionMessage|ai:ChatAssistantMessage {
@@ -203,20 +204,43 @@ public isolated distinct client class ModelProvider {
     }
 }
 
-isolated function getChatMessageStringContent(ai:Prompt|string prompt) returns string {
+isolated function getChatMessageStringContent(ai:Prompt|string prompt) returns string|ai:Error {
     if prompt is string {
         return prompt;
     }
-    string str = prompt.strings[0];
+    string[] & readonly strings = prompt.strings;
     anydata[] insertions = prompt.insertions;
+    string promptStr = strings[0];
     foreach int i in 0 ..< insertions.length() {
-        anydata value = insertions[i];
-        string promptStr = prompt.strings[i + 1];
-        if value is ai:TextDocument {
-            str = str + value.content + promptStr;
+        string str = strings[i + 1];
+        anydata insertion = insertions[i];
+
+        if insertion is ai:TextDocument|ai:TextChunk {
+            promptStr += insertion.content + " " + str;
             continue;
         }
-        str = str + value.toString() + promptStr;
+
+        if insertion is ai:TextDocument[] {
+            foreach ai:TextDocument doc in insertion {
+                promptStr += doc.content + " ";
+            }
+            promptStr += str;
+            continue;
+        }
+
+        if insertion is ai:TextChunk[] {
+            foreach ai:TextChunk doc in insertion {
+                promptStr += doc.content + " ";
+            }
+            promptStr += str;
+            continue;
+        }
+
+        if insertion is ai:Document {
+            return error ai:Error("Only Text Documents are currently supported.");
+        }
+
+        promptStr += insertion.toString() + str;
     }
-    return str.trim();
+    return promptStr.trim();
 }
