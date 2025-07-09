@@ -70,8 +70,8 @@ public distinct isolated client class EmbeddingProvider {
     # + chunk - The `ai:Chunk` containing the content to embed
     # + return - The resulting `ai:Embedding` on success; otherwise, returns an `ai:Error`
     isolated remote function embed(ai:Chunk chunk) returns ai:Embedding|ai:Error {
-        if chunk !is ai:TextDocument {
-            return error ai:Error("Unsupported document type. only 'ai:TextDocument' is supported");
+        if chunk !is ai:TextDocument|ai:TextChunk {
+            return error ai:Error("Unsupported document type. only 'ai:TextDocument|ai:TextChunk' is supported");
         }
         do {
             embeddings:CreateEmbeddingRequest request = {
