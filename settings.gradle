@@ -7,6 +7,7 @@
 
 pluginManagement {
     plugins {
+        id "com.github.spotbugs-base" version "${spotbugsPluginVersion}"
         id "com.github.johnrengelman.shadow" version "${shadowJarPluginVersion}"
         id "de.undercouch.download" version "${downloadPluginVersion}"
         id "net.researchgate.release" version "${releasePluginVersion}"
@@ -29,11 +30,18 @@ plugins {
     id "com.gradle.enterprise" version "3.2"
 }
 
-rootProject.name = 'module-ballerinax-ai.model.provider.openai'
+rootProject.name = 'module-ballerinax-ai.openai'
 
-include ':ai.model.provider.openai-ballerina'
+include ':checkstyle'
+include ':ai.openai-native'
+include ':ai.openai-ballerina'
+include ':ai.openai-compiler-plugin'
 
-project(':ai.model.provider.openai-ballerina').projectDir = file("ballerina")
+project(':checkstyle').projectDir = file("build-config${File.separator}checkstyle")
+project(':ai.openai-native').projectDir = file("native")
+
+project(':ai.openai-ballerina').projectDir = file("ballerina")
+project(':ai.openai-compiler-plugin').projectDir = file('compiler-plugin')
 
 gradleEnterprise {
     buildScan {

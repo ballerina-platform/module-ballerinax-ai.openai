@@ -15,5 +15,5 @@ jobs:
     uses: ballerina-platform/ballerina-library/.github/workflows/build-connector-template.yml@main
     secrets: inherit
     with:
-      repo-name: module-ballerinax-ai.model.provider.openai
+      repo-name: module-ballerinax-ai.openai
       publish-required: true
