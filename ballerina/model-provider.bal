@@ -22,11 +22,13 @@ const DEFAULT_OPENAI_SERVICE_URL = "https://api.openai.com/v1";
 const DEFAULT_MAX_TOKEN_COUNT = 512;
 const DEFAULT_TEMPERATURE = 0.7d;
 
-# Provider is a client class that provides an interface for interacting with OpenAI Large Language Models.
-public isolated client class Provider {
+# ModelProvider is a client class that provides an interface for interacting with OpenAI Large Language Models.
+public isolated distinct client class ModelProvider {
     *ai:ModelProvider;
     private final chat:Client llmClient;
     private final OPEN_AI_MODEL_NAMES modelType;
+    private final decimal temperature;
+    private final int maxTokens;
 
     # Initializes the OpenAI model with the given connection configuration and model configuration.
     #
@@ -72,20 +74,24 @@ public isolated client class Provider {
         }
         self.llmClient = llmClient;
         self.modelType = modelType;
+        self.temperature = temperature;
+        self.maxTokens = maxTokens;
     }
 
     # Sends a chat request to the OpenAI model with the given messages and tools.
     #
-    # + messages - List of chat messages 
+    # + messages - List of chat messages or a single user message
     # + tools - Tool definitions to be used for the tool call
     # + stop - Stop sequence to stop the completion
     # + return - Function to be called, chat response or an error in-case of failures
-    isolated remote function chat(ai:ChatMessage[] messages, ai:ChatCompletionFunctions[] tools, string? stop = ())
-        returns ai:ChatAssistantMessage|ai:LlmError {
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages, ai:ChatCompletionFunctions[] tools,
+            string? stop = ()) returns ai:ChatAssistantMessage|ai:Error {
         chat:CreateChatCompletionRequest request = {
+            max_completion_tokens: self.maxTokens,
+            temperature: self.temperature,
             stop,
             model: self.modelType,
-            messages: self.prepareCompletionRequestMessages(messages, tools)
+            messages: check self.prepareCompletionRequestMessages(messages, tools)
         };
         boolean supportsToolCalls = isToolCallSupported(self.modelType);
         if supportsToolCalls && tools.length() > 0 {
@@ -114,18 +120,39 @@ public isolated client class Provider {
         'class: "io.ballerina.lib.ai.openai.Generator"
     } external;
 
-    private isolated function prepareCompletionRequestMessages(ai:ChatMessage[] messages,
-            ai:ChatCompletionFunctions[] tools) returns chat:ChatCompletionRequestMessage[] {
+    private isolated function prepareCompletionRequestMessages(ai:ChatMessage[]|ai:ChatUserMessage messages,
+            ai:ChatCompletionFunctions[] tools) returns chat:ChatCompletionRequestMessage[]|ai:Error {
         chat:ChatCompletionRequestMessage[] chatCompletionRequestMessages = [];
+        if messages is ai:ChatUserMessage {
+            chatCompletionRequestMessages.push({
+                role: ai:USER,
+                content: check getChatMessageStringContent(messages.content),
+                name: messages.name
+            });
+            return chatCompletionRequestMessages;
+        }
         boolean supportsToolCalls = isToolCallSupported(self.modelType);
         foreach ai:ChatMessage message in messages {
             if message is ai:ChatSystemMessage && !supportsToolCalls {
-                string reactPrompt = constructReActPrompt(extractToolInfo(tools), message.content);
+                string reactPrompt = constructReActPrompt(extractToolInfo(tools),
+                        check getChatMessageStringContent(message.content));
                 chatCompletionRequestMessages.push({role: ai:SYSTEM, content: reactPrompt});
             } else if message is ai:ChatAssistantMessage {
                 chat:ChatCompletionRequestAssistantMessage assistantMessage = self.buildRequestAssistantMessage(message);
                 chatCompletionRequestMessages.push(assistantMessage);
-            } else {
+            } else if message is ai:ChatUserMessage {
+                chatCompletionRequestMessages.push({
+                    role: ai:USER,
+                    content: check getChatMessageStringContent(message.content),
+                    name: message.name
+                });
+            } else if message is ai:ChatSystemMessage {
+                chatCompletionRequestMessages.push({
+                    role: ai:SYSTEM,
+                    content: check getChatMessageStringContent(message.content),
+                    name: message.name
+                });
+            } else if message is ai:ChatFunctionMessage|ai:ChatAssistantMessage {
                 chatCompletionRequestMessages.push(message);
             }
         }
@@ -186,4 +213,45 @@ public isolated client class Provider {
             return error("Invalid or malformed arguments received in function call response.", e);
         }
     }
+}
+
+isolated function getChatMessageStringContent(ai:Prompt|string prompt) returns string|ai:Error {
+    if prompt is string {
+        return prompt;
+    }
+    string[] & readonly strings = prompt.strings;
+    anydata[] insertions = prompt.insertions;
+    string promptStr = strings[0];
+    foreach int i in 0 ..< insertions.length() {
+        string str = strings[i + 1];
+        anydata insertion = insertions[i];
+
+        if insertion is ai:TextDocument|ai:TextChunk {
+            promptStr += insertion.content + " " + str;
+            continue;
+        }
+
+        if insertion is ai:TextDocument[] {
+            foreach ai:TextDocument doc in insertion {
+                promptStr += doc.content + " ";
+            }
+            promptStr += str;
+            continue;
+        }
+
+        if insertion is ai:TextChunk[] {
+            foreach ai:TextChunk doc in insertion {
+                promptStr += doc.content + " ";
+            }
+            promptStr += str;
+            continue;
+        }
+
+        if insertion is ai:Document {
+            return error ai:Error("Only Text Documents are currently supported.");
+        }
+
+        promptStr += insertion.toString() + str;
+    }
+    return promptStr.trim();
 }

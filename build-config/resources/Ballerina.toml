@@ -3,9 +3,9 @@ authors = ["Ballerina"]
 distribution = "2201.12.0"
 keywords = ["AI", "Agent", "OpenAI", "Model", "Provider"]
 license = ["Apache-2.0"]
-name = "ai.model.provider.openai"
+name = "ai.openai"
 org = "ballerinax"
-repository = "https://github.com/ballerina-platform/module-ballerinax-ai.model.provider.openai"
+repository = "https://github.com/ballerina-platform/module-ballerinax-ai.openai"
 version = "@toml.version@"
 
 [platform.java21]

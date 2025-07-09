@@ -3,10 +3,10 @@ authors = ["Ballerina"]
 distribution = "2201.12.0"
 keywords = ["AI", "Agent", "OpenAI", "Model", "Provider"]
 license = ["Apache-2.0"]
-name = "ai.model.provider.openai"
+name = "ai.openai"
 org = "ballerinax"
-repository = "https://github.com/ballerina-platform/module-ballerinax-ai.model.provider.openai"
-version = "1.0.1"
+repository = "https://github.com/ballerina-platform/module-ballerinax-ai.openai"
+version = "1.0.0"
 
 [platform.java21]
 graalvmCompatible = true
