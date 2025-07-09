@@ -17,7 +17,7 @@
 import ballerina/ai;
 import ballerinax/openai.chat;
 
-type SchemaResponse record {|
+type ResponseSchema record {|
     map<json> schema;
     boolean isOriginallyJsonObject = true;
 |};
@@ -31,7 +31,7 @@ const GET_RESULTS_TOOL = "getResults";
 const FUNCTION = "function";
 const NO_RELEVANT_RESPONSE_FROM_THE_LLM = "No relevant response from the LLM";
 
-isolated function generateJsonObjectSchema(map<json> schema) returns SchemaResponse {
+isolated function generateJsonObjectSchema(map<json> schema) returns ResponseSchema {
     string[] supportedMetaDataFields = ["$schema", "$id", "$anchor", "$comment", "title", "description"];
 
     if schema["type"] == "object" {
@@ -70,7 +70,7 @@ isolated function parseResponseAsType(string resp,
     return result;
 }
 
-isolated function getExpectedResponseSchema(typedesc<anydata> expectedResponseTypedesc) returns SchemaResponse|ai:Error {
+isolated function getExpectedResponseSchema(typedesc<anydata> expectedResponseTypedesc) returns ResponseSchema|ai:Error {
     // Restricted at compile-time for now.
     typedesc<json> td = checkpanic expectedResponseTypedesc.ensureType();
     return generateJsonObjectSchema(check generateJsonSchemaForTypedescAsJson(td));
@@ -83,8 +83,8 @@ isolated function getGetResultsToolChoice() returns chat:ChatCompletionNamedTool
     }
 };
 
-isolated function getGetResultsTool(map<json> parameters) returns chat:ChatCompletionTool[]|error {
-    return [
+isolated function getGetResultsTool(map<json> parameters) returns chat:ChatCompletionTool[]|error =>
+    [
         {
             'type: FUNCTION,
             'function: {
@@ -94,27 +94,25 @@ isolated function getGetResultsTool(map<json> parameters) returns chat:ChatCompl
             }
         }
     ];
-}
 
-isolated function genarateChatCreationContent(ai:Prompt prompt) returns string|ai:Error {
+isolated function generateChatCreationContent(ai:Prompt prompt) returns string|ai:Error {
     string[] & readonly strings = prompt.strings;
-    string str = strings[0];
     anydata[] insertions = prompt.insertions;
+    string promptStr = strings[0];
     foreach int i in 0 ..< insertions.length() {
+        string str = strings[i + 1];
         anydata insertion = insertions[i];
-        string promptStr = strings[i + 1];
 
         if insertion is ai:TextDocument {
-            str += insertion.content + " " + promptStr;
+            promptStr += insertion.content + " " + str;
             continue;
         }
 
         if insertion is ai:TextDocument[] {
             foreach ai:TextDocument doc in insertion {
-                str += doc.content  + " ";
-                
+                promptStr += doc.content  + " ";
             }
-            str += promptStr;
+            promptStr += str;
             continue;
         }
 
@@ -122,26 +120,26 @@ isolated function genarateChatCreationContent(ai:Prompt prompt) returns string|a
             return error ai:Error("Only Text Documents are currently supported.");
         }
 
-        str += insertion.toString() + promptStr;
+        promptStr += insertion.toString() + str;
     }
-    return str.trim();
+    return promptStr.trim();
 }
 
 isolated function handleParseResponseError(error chatResponseError) returns error {
-    if chatResponseError.message().includes(JSON_CONVERSION_ERROR)
-            || chatResponseError.message().includes(CONVERSION_ERROR) {
-        return error(string `${ERROR_MESSAGE}`, detail = chatResponseError);
+    string msg = chatResponseError.message();
+    if msg.includes(JSON_CONVERSION_ERROR) || msg.includes(CONVERSION_ERROR) {
+        return error(string `${ERROR_MESSAGE}`, chatResponseError);
     }
     return chatResponseError;
 }
 
 isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES modelType, 
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc) returns anydata|ai:Error {
-    string content = check genarateChatCreationContent(prompt);
-    SchemaResponse schemaResponse = check getExpectedResponseSchema(expectedResponseTypedesc);
-    chat:ChatCompletionTool[]|error tools = getGetResultsTool(schemaResponse.schema);
+    string content = check generateChatCreationContent(prompt);
+    ResponseSchema ResponseSchema = check getExpectedResponseSchema(expectedResponseTypedesc);
+    chat:ChatCompletionTool[]|error tools = getGetResultsTool(ResponseSchema.schema);
     if tools is error {
-        return error ai:LlmError("Error while generating the tool: " + tools.message());
+        return error("Error while generating the tool: " + tools.message());
     }
 
     chat:CreateChatCompletionRequest request = {
@@ -159,29 +157,29 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
     chat:CreateChatCompletionResponse|error response =
         llmClient->/chat/completions.post(request);
     if response is error {
-        return error ai:LlmError("LLM call failed: " + response.message());
+        return error("LLM call failed: " + response.message());
     }
 
     chat:CreateChatCompletionResponse_choices[] choices = response.choices;
 
     if choices.length() == 0 {
-        return error ai:LlmError("No completion choices");
+        return error("No completion choices");
     }
 
     chat:ChatCompletionResponseMessage? message = choices[0].message;
     chat:ChatCompletionMessageToolCall[]? toolCalls = message?.tool_calls;
     if toolCalls is () || toolCalls.length() == 0 {
-        return error ai:LlmError(NO_RELEVANT_RESPONSE_FROM_THE_LLM);
+        return error(NO_RELEVANT_RESPONSE_FROM_THE_LLM);
     }
 
     chat:ChatCompletionMessageToolCall tool = toolCalls[0];
     map<json>|error arguments = tool.'function.arguments.fromJsonStringWithType();
     if arguments is error {
-        return error ai:LlmError(NO_RELEVANT_RESPONSE_FROM_THE_LLM);
+        return error(NO_RELEVANT_RESPONSE_FROM_THE_LLM);
     }
 
     anydata|error res = parseResponseAsType(arguments.toJsonString(), expectedResponseTypedesc,
-            schemaResponse.isOriginallyJsonObject);
+            ResponseSchema.isOriginallyJsonObject);
     if res is error {
         return error ai:LlmInvalidGenerationError(string `Invalid value returned from the LLM Client, expected: '${
             expectedResponseTypedesc.toBalString()}', found '${res.toBalString()}'`);

@@ -183,7 +183,7 @@ public isolated client class Provider {
             chatAssistantMessage.content = parsedReActResponse.content;
             return chatAssistantMessage;
         } on fail error e {
-            return error ai:LlmError("Invalid or malformed arguments received in function call response.", e);
+            return error("Invalid or malformed arguments received in function call response.", e);
         }
     }
 }
