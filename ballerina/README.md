@@ -35,7 +35,7 @@ final ai:ModelProvider openAiModel = check new openai:ModelProvider("openAiApiKe
 
 ### Step 4: Invoke chat completion
 
-```
+```ballerina
 ai:ChatMessage[] chatMessages = [{role: "user", content: "hi"}];
 ai:ChatAssistantMessage response = check openAiModel->chat(chatMessages, tools = []);
 
