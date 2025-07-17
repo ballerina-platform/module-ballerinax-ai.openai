@@ -16,3 +16,9 @@ groupId = "io.ballerina.lib"
 artifactId = "ai.openai-native"
 version = "1.0.0"
 path = "../native/build/libs/ai.openai-native-1.0.0-SNAPSHOT.jar"
+
+[[dependency]]
+org="ballerina"
+name="ai"
+version="1.0.1"
+repository="local"
