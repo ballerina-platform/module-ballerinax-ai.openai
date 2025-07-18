@@ -19,20 +19,25 @@ import ballerina/test;
 import ballerinax/openai.chat;
 
 service /llm on new http:Listener(8080) {
-    resource function post openai/chat/completions(chat:CreateChatCompletionRequest payload)
+    // Change the payload tyoe to JSON due to https://github.com/ballerina-platform/ballerina-library/issues/8048.
+    resource function post openai/chat/completions(@http:Payload json payload)
                 returns chat:CreateChatCompletionResponse|error {
         test:assertEquals(payload.model, GPT_4O);
-        chat:ChatCompletionRequestMessage[] messages = check payload.messages.ensureType();
+        chat:ChatCompletionRequestMessage[] messages = check (check payload.messages).fromJsonWithType();
         chat:ChatCompletionRequestMessage message = messages[0];
 
-        string? content = check message["content"].ensureType();
+        chat:ChatCompletionRequestUserMessageContentPart[]? content = check message["content"].ensureType();
         if content is () {
             test:assertFail("Expected content in the payload");
         }
 
-        test:assertEquals(content, getExpectedPrompt(content));
+        chat:ChatCompletionRequestUserMessageContentPart initialContentPart = content[0];
+        TextContentPart initialTextContent = check initialContentPart.ensureType();
+        string initialText = initialTextContent.text;
+        test:assertEquals(content, getExpectedContentParts(initialText),
+                string `Test failed for prompt with initial content, ${initialText}`);
         test:assertEquals(message.role, "user");
-        chat:ChatCompletionTool[]? tools = payload.tools;
+        chat:ChatCompletionTool[]? tools = check (check payload.tools).fromJsonWithType();
         if tools is () || tools.length() == 0 {
             test:assertFail("No tools in the payload");
         }
@@ -42,7 +47,8 @@ service /llm on new http:Listener(8080) {
             test:assertFail("No parameters in the expected tool");
         }
 
-        test:assertEquals(parameters, getExpectedParameterSchema(content), string `Test failed for prompt:- ${content}`);
-        return getTestServiceResponse(content);
+        test:assertEquals(parameters, getExpectedParameterSchema(initialText),
+                string `Test failed for prompt with initial content, ${initialText}`);
+        return getTestServiceResponse(initialText);
     }
 }
