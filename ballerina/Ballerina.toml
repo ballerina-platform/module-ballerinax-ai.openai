@@ -6,7 +6,7 @@ license = ["Apache-2.0"]
 name = "ai.openai"
 org = "ballerinax"
 repository = "https://github.com/ballerina-platform/module-ballerinax-ai.openai"
-version = "1.0.1"
+version = "1.1.0"
 
 [platform.java21]
 graalvmCompatible = true
@@ -14,11 +14,5 @@ graalvmCompatible = true
 [[platform.java21.dependency]]
 groupId = "io.ballerina.lib"
 artifactId = "ai.openai-native"
-version = "1.0.1"
-path = "../native/build/libs/ai.openai-native-1.0.1-SNAPSHOT.jar"
-
-[[dependency]]
-org = "ballerina"
-name = "ai"
 version = "1.1.0"
-repository="local"
+path = "../native/build/libs/ai.openai-native-1.1.0-SNAPSHOT.jar"
