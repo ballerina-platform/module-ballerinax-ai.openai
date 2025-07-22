@@ -6,6 +6,7 @@ This file documents all significant changes made to the Ballerina ai.openai pack
 
 ### Added
 - [Add `batchEmbed` API in `EmbeddingProvider`](https://github.com/ballerina-platform/ballerina-library/issues/8110)
+- Bump AI module dependency version to 1.1.0
 
 ## [1.0.0] - 2025-07-09
 
