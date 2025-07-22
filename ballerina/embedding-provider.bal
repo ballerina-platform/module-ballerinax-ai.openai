@@ -84,4 +84,25 @@ public distinct isolated client class EmbeddingProvider {
             return error ai:Error("Unable to obtain embedding for the provided document", e);
         }
     }
+
+    # Converts a batch of chunks into embeddings.
+    #
+    # + chunks - The array of chunks to be converted into embeddings
+    # + return - An array of embeddings on success, or an `ai:Error`
+    isolated remote function batchEmbed(ai:Chunk[] chunks) returns ai:Embedding[]|ai:Error {
+        if chunks !is ai:TextChunk[]|ai:TextDocument[] {
+            return error("Unsupported chunk type. only 'ai:TextChunk[]|ai:TextDocument[]' is supported");
+        }
+        do {
+            embeddings:CreateEmbeddingRequest request = {
+                model: self.modelType,
+                input: chunks.map(chunk => chunk.content.toString())
+            };
+            embeddings:CreateEmbeddingResponse response = check self.embeddingsClient->/embeddings.post(request);
+            return from embeddings:CreateEmbeddingResponse_data e in response.data
+                select e.embedding;
+        } on fail error e {
+            return error ai:Error("Unable to obtain embedding for the provided document", e);
+        }
+    }
 }
