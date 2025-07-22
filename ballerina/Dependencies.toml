@@ -10,14 +10,16 @@ distribution-version = "2201.12.0"
 [[package]]
 org = "ballerina"
 name = "ai"
-version = "1.0.0"
+version = "1.1.0"
 dependencies = [
+	{org = "ballerina", name = "constraint"},
 	{org = "ballerina", name = "data.jsondata"},
 	{org = "ballerina", name = "data.xmldata"},
 	{org = "ballerina", name = "file"},
 	{org = "ballerina", name = "http"},
 	{org = "ballerina", name = "io"},
 	{org = "ballerina", name = "jballerina.java"},
+	{org = "ballerina", name = "lang.array"},
 	{org = "ballerina", name = "lang.regexp"},
 	{org = "ballerina", name = "log"},
 	{org = "ballerina", name = "math.vector"},
@@ -275,10 +277,11 @@ version = "1.2.0"
 [[package]]
 org = "ballerina"
 name = "mcp"
-version = "0.4.3"
+version = "0.9.1"
 dependencies = [
 	{org = "ballerina", name = "http"},
-	{org = "ballerina", name = "jballerina.java"}
+	{org = "ballerina", name = "jballerina.java"},
+	{org = "ballerina", name = "uuid"}
 ]
 
 [[package]]
