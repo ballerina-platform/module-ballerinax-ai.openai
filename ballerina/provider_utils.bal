@@ -28,7 +28,6 @@ type DocumentContentPart TextContentPart|ImageContentPart;
 
 type TextContentPart chat:ChatCompletionRequestMessageContentPartText;
 type ImageContentPart chat:ChatCompletionRequestMessageContentPartImage;
-type AudioContentPart chat:ChatCompletionRequestMessageContentPartAudio;
 
 const JSON_CONVERSION_ERROR = "FromJsonStringError";
 const CONVERSION_ERROR = "ConversionError";
