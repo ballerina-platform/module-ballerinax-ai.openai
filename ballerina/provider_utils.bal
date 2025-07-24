@@ -24,18 +24,11 @@ type ResponseSchema record {|
     boolean isOriginallyJsonObject = true;
 |};
 
-// type DocumentContentPart TextContentPart|ImageContentPart|AudioContentPart|FileContentPart;
-type DocumentContentPart TextContentPart|ImageContentPart|AudioContentPart;
+type DocumentContentPart TextContentPart|ImageContentPart;
 
 type TextContentPart chat:ChatCompletionRequestMessageContentPartText;
 type ImageContentPart chat:ChatCompletionRequestMessageContentPartImage;
 type AudioContentPart chat:ChatCompletionRequestMessageContentPartAudio;
-// type FileContentPart record {|
-//     readonly "file" 'type = "file";
-//     string file_data?;
-//     string file_id?;
-//     string filename?;
-// |};
 
 const JSON_CONVERSION_ERROR = "FromJsonStringError";
 const CONVERSION_ERROR = "ConversionError";
@@ -127,14 +120,14 @@ isolated function generateChatCreationContent(ai:Prompt prompt)
 
         if insertion is ai:Document {
             addTextContentPart(buildTextContentPart(accumulatedTextContent), contentParts);
-            check addDocumentContentPart(insertion, contentParts);
             accumulatedTextContent = "";
+            check addDocumentContentPart(insertion, contentParts);
         } else if insertion is ai:Document[] {
             addTextContentPart(buildTextContentPart(accumulatedTextContent), contentParts);
+            accumulatedTextContent = "";
             foreach ai:Document doc in insertion {
                 check addDocumentContentPart(doc, contentParts);
             }
-            accumulatedTextContent = "";
         } else {
             accumulatedTextContent += insertion.toString();
         }
@@ -150,12 +143,9 @@ isolated function addDocumentContentPart(ai:Document doc, DocumentContentPart[] 
         return addTextContentPart(buildTextContentPart(doc.content), contentParts);
     } else if doc is ai:ImageDocument {
         return contentParts.push(check buildImageContentPart(doc));
-    } else if doc is ai:AudioDocument {
-        return contentParts.push(check buildAudioContentPart(doc));
-    // } else if doc is ai:FileDocument {
-    //     return contentParts.push(check buildFileContentPart(doc));
     }
-    return error ai:Error("Only text, audio and image documents are supported.");
+
+    return error ai:Error("Only text and image documents are supported.");
 }
 
 isolated function addTextContentPart(TextContentPart? contentPart, DocumentContentPart[] contentParts) {
@@ -175,50 +165,13 @@ isolated function buildTextContentPart(string content) returns TextContentPart? 
     };
 }
 
-isolated function buildImageContentPart(ai:ImageDocument doc) returns ImageContentPart|ai:Error {
-    return {
+isolated function buildImageContentPart(ai:ImageDocument doc) returns ImageContentPart|ai:Error =>
+    {
         'type: "image_url",
         image_url: {
             url: check buildImageUrl(doc.content, doc.metadata?.mimeType)
         }
     };
-}
-
-isolated function buildAudioContentPart(ai:AudioDocument doc) returns AudioContentPart|ai:Error {
-    "mp3"|"wav"|error format = doc?.metadata["format"].ensureType();
-    if format is error {
-        return error("Please specify the audio format in the 'format' field of the metadata; supported values are 'mp3' and 'wav'");
-    }
-
-    ai:Url|byte[] content = doc.content;
-    if content is ai:Url {
-        return error("URL-based audio content isn’t supported at the moment.");
-    }
-
-    return {'type: "input_audio", input_audio: {format, data: check getBase64EncodedString(content)}};
-}
-
-// isolated function buildFileContentPart(ai:FileDocument doc) returns FileContentPart|ai:Error {
-//     string? fileName = doc.metadata?.fileName;
-//     byte[]|ai:Url|ai:FileId content = doc.content;
-//     if content is ai:Url {
-//         return error("URL-based file content isn’t supported at the moment.");
-//     }
-
-//     if content is ai:FileId {
-//         return {
-//             file_id: content.fileId,
-//             filename: fileName
-//         };
-//     }
-
-//     if content is byte[] {
-//         return {
-//             file_data: check getBase64EncodedString(content),
-//             filename: fileName
-//         };
-//     }
-// };
 
 isolated function buildImageUrl(ai:Url|byte[] content, string? mimeType) returns string|ai:Error {
     if content is ai:Url {

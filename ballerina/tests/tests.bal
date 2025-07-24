@@ -82,7 +82,7 @@ function testGenerateMethodWithTextDocumentArray() returns error? {
 @test:Config
 function testGenerateMethodWithImageDocumentWithBinaryData() returns ai:Error? {
     ai:ImageDocument img = {
-        content: imageBinaryData
+        content: sampleBinaryData
     };
 
     string|error description = provider->generate(`Describe the following image. ${img}.`);
@@ -120,7 +120,7 @@ function testGenerateMethodWithImageDocumentWithInvalidUrl() returns ai:Error? {
 @test:Config
 function testGenerateMethodWithImageDocumentArray() returns ai:Error? {
     ai:ImageDocument img = {
-        content: imageBinaryData,
+        content: sampleBinaryData,
         metadata: {
             mimeType: "image/png"
         }
@@ -137,7 +137,7 @@ function testGenerateMethodWithImageDocumentArray() returns ai:Error? {
 @test:Config
 function testGenerateMethodWithTextAndImageDocumentArray() returns ai:Error? {
     ai:ImageDocument img = {
-        content: imageBinaryData,
+        content: sampleBinaryData,
         metadata: {
             mimeType: "image/png"
         }
@@ -154,7 +154,7 @@ function testGenerateMethodWithTextAndImageDocumentArray() returns ai:Error? {
 @test:Config
 function testGenerateMethodWithImageDocumentsandTextDocuments() returns ai:Error? {
     ai:ImageDocument img = {
-        content: imageBinaryData,
+        content: sampleBinaryData,
         metadata: {
             mimeType: "image/png"
         }
@@ -169,9 +169,22 @@ function testGenerateMethodWithImageDocumentsandTextDocuments() returns ai:Error
 }
 
 @test:Config
+function testGenerateMethodWithAudioDocument() returns ai:Error? {
+    ai:AudioDocument aud = {
+        content: sampleBinaryData,
+        metadata: {
+            "format": "mp3"
+        }
+    };
+
+    string[]|error descriptions = provider->generate(`What is the content in this document. ${aud}.`);
+    test:assertTrue(descriptions is error);
+    test:assertTrue((<error>descriptions).message().includes("Only text and image documents are supported."));
+}
+
+@test:Config
 function testGenerateMethodWithUnsupportedDocument() returns ai:Error? {
-    ai:Document doc = {
-        'type: "audio",
+    ai:FileDocument doc = {
         content: "dummy-data"
     };
 
