@@ -93,7 +93,7 @@ isolated function getExpectedParameterSchema(string message) returns map<json> {
         };
     }
 
-            if message.startsWith("Give me a random joke about cricketers") {
+    if message.startsWith("Give me a random joke about cricketers") {
         return expectedParameterSchemaForRecUnionBasicType;
     }
 
