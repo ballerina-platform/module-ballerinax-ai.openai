@@ -106,7 +106,8 @@ public enum OPEN_AI_MODEL_NAMES {
     GPT_4_1_MINI = "gpt-4.1-mini",
     GPT_4_1_NANO = "gpt-4.1-nano",
     GPT_4_1_NANO_2025_04_14 = "gpt-4.1-nano-2025-04-14",
-    CHATGPT_4O_LATEST = "chatgpt-4o-latest"
+    CHATGPT_4O_LATEST = "chatgpt-4o-latest",
+    GPT_4O_AUDIO_PREVIEW = "gpt-4o-audio-preview"
 }
 
 @display {label: "OpenAI Embedding Model Names"}

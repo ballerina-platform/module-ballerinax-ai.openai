@@ -31,10 +31,6 @@ function testGenerateMethodWithBasicReturnType() returns ai:Error? {
     int|error rating = provider->generate(`Rate this blog out of 10.
         Title: ${blog1.title}
         Content: ${blog1.content}`);
-
-    if rating is error {
-        test:assertFail(rating.message());
-    }
     test:assertEquals(rating, 4);
 }
 
@@ -46,21 +42,14 @@ function testGenerateMethodWithBasicArrayReturnType() returns ai:Error? {
 
         Title: ${blog1.title}
         Content: ${blog1.content}`);
-
-    if rating is error {
-        test:assertFail(rating.message());
-    }
     test:assertEquals(rating, [9, 1]);
 }
 
 @test:Config
 function testGenerateMethodWithRecordReturnType() returns error? {
-    Review|error result = provider->generate(`Please rate this blog out of 10.
+    Review|error result = provider->generate(`Please rate this blog out of ${"10"}.
         Title: ${blog2.title}
         Content: ${blog2.content}`);
-    if result is error {
-        test:assertFail(result.message());
-    }
     test:assertEquals(result, check review.fromJsonStringWithType(Review));
 }
 
@@ -72,25 +61,7 @@ function testGenerateMethodWithTextDocument() returns ai:Error? {
     int maxScore = 10;
 
     int|error rating = provider->generate(`How would you rate this ${"blog"} content out of ${maxScore}. ${blog}.`);
-    if rating is error {
-        test:assertFail(rating.message());
-    }
     test:assertEquals(rating, 4);
-}
-
-@test:Config
-function testGenerateMethodWithTextDocument2() returns error? {
-    ai:TextDocument blog = {
-        content: string `Title: ${blog1.title} Content: ${blog1.content}`
-    };
-    int maxScore = 10;
-
-    Review|error result = provider->generate(`How would you rate this text blog out of ${maxScore}, ${blog}.`);
-    if result is error {
-        test:assertFail(result.message());
-    }
-
-    test:assertEquals(result, check review.fromJsonStringWithType(Review));
 }
 
 type ReviewArray Review[];
@@ -104,11 +75,122 @@ function testGenerateMethodWithTextDocumentArray() returns error? {
     int maxScore = 10;
     Review r = check review.fromJsonStringWithType(Review);
 
-    ReviewArray|error result = provider->generate(`How would you rate this text blogs out of ${maxScore}. ${blogs}. Thank you!`);
-    if result is error {
-        test:assertFail(result.message());
-    }
+    ReviewArray|error result = provider->generate(`How would you rate these text blogs out of ${maxScore}. ${blogs}. Thank you!`);
     test:assertEquals(result, [r, r]);
+}
+
+@test:Config
+function testGenerateMethodWithImageDocumentWithBinaryData() returns ai:Error? {
+    ai:ImageDocument img = {
+        content: sampleBinaryData
+    };
+
+    string|error description = provider->generate(`Describe the following image. ${img}.`);
+    test:assertEquals(description, "This is a sample image description.");
+}
+
+@test:Config
+function testGenerateMethodWithImageDocumentWithUrl() returns ai:Error? {
+    ai:ImageDocument img = {
+        content: "https://example.com/image.jpg",
+        metadata: {
+            mimeType: "image/jpg"
+        }
+    };
+
+    string|error description = provider->generate(`Describe the image. ${img}.`);
+    test:assertEquals(description, "This is a sample image description.");
+}
+
+@test:Config
+function testGenerateMethodWithImageDocumentWithInvalidUrl() returns ai:Error? {
+    ai:ImageDocument img = {
+        content: "This-is-not-a-valid-url"
+    };
+
+    string|ai:Error description = provider->generate(`Please describe the image. ${img}.`);
+    test:assertTrue(description is ai:Error);
+
+    string actualErrorMessage = (<ai:Error>description).message();
+    string expectedErrorMessage = "Must be a valid URL";
+    test:assertTrue((<ai:Error>description).message().includes("Must be a valid URL"),
+            string `expected '${expectedErrorMessage}', found ${actualErrorMessage}`);
+}
+
+@test:Config
+function testGenerateMethodWithImageDocumentArray() returns ai:Error? {
+    ai:ImageDocument img = {
+        content: sampleBinaryData,
+        metadata: {
+            mimeType: "image/png"
+        }
+    };
+    ai:ImageDocument img2 = {
+        content: "https://example.com/image.jpg"
+    };
+
+    string[]|error descriptions = provider->generate(
+        `Describe the following ${"2"} images. ${<ai:ImageDocument[]>[img, img2]}.`);
+    test:assertEquals(descriptions, ["This is a sample image description.", "This is a sample image description."]);
+}
+
+@test:Config
+function testGenerateMethodWithTextAndImageDocumentArray() returns ai:Error? {
+    ai:ImageDocument img = {
+        content: sampleBinaryData,
+        metadata: {
+            mimeType: "image/png"
+        }
+    };
+    ai:TextDocument blog = {
+        content: string `Title: ${blog1.title} Content: ${blog1.content}`
+    };
+
+    string[]|error descriptions = provider->generate(
+        `Please describe the following image and the doc. ${<ai:Document[]>[img, blog]}.`);
+    test:assertEquals(descriptions, ["This is a sample image description.", "This is a sample doc description."]);
+}
+
+@test:Config
+function testGenerateMethodWithImageDocumentsandTextDocuments() returns ai:Error? {
+    ai:ImageDocument img = {
+        content: sampleBinaryData,
+        metadata: {
+            mimeType: "image/png"
+        }
+    };
+    ai:TextDocument blog = {
+        content: string `Title: ${blog1.title} Content: ${blog1.content}`
+    };
+
+    string[]|error descriptions = provider->generate(
+        `${"Describe"} the following ${"text"} ${"document"} and image document. ${img}${blog}`);
+    test:assertEquals(descriptions, ["This is a sample image description.", "This is a sample doc description."]);
+}
+
+@test:Config
+function testGenerateMethodWithAudioDocument() returns ai:Error? {
+    ai:AudioDocument aud = {
+        content: sampleBinaryData,
+        metadata: {
+            "format": "mp3"
+        }
+    };
+
+    string[]|error descriptions = provider->generate(`What is the content in this document. ${aud}.`);
+    test:assertTrue(descriptions is error);
+    test:assertTrue((<error>descriptions).message().includes("Only text and image documents are supported."));
+}
+
+@test:Config
+function testGenerateMethodWithUnsupportedDocument() returns ai:Error? {
+    ai:FileDocument doc = {
+        content: "dummy-data"
+    };
+
+    string[]|error descriptions = provider->generate(`What is the content in this document. ${doc}.`);
+    test:assertTrue(descriptions is error);
+    test:assertTrue((<error>descriptions).message().includes("Only text and image documents are supported."));
 }
 
 @test:Config
@@ -118,10 +200,6 @@ function testGenerateMethodWithRecordArrayReturnType() returns error? {
 
     ReviewArray|error result = provider->generate(`Please rate this blogs out of ${maxScore}.
         [{Title: ${blog1.title}, Content: ${blog1.content}}, {Title: ${blog2.title}, Content: ${blog2.content}}]`);
-
-    if result is error {
-        test:assertFail(result.message());
-    }
     test:assertEquals(result, [r, r]);
 }
 
