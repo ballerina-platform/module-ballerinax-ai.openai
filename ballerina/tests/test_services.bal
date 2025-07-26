@@ -19,7 +19,7 @@ import ballerina/test;
 import ballerinax/openai.chat;
 
 service /llm on new http:Listener(8080) {
-    // Change the payload tyoe to JSON due to https://github.com/ballerina-platform/ballerina-library/issues/8048.
+    // Change the payload type to JSON due to https://github.com/ballerina-platform/ballerina-library/issues/8048.
     resource function post openai/chat/completions(@http:Payload json payload)
                 returns chat:CreateChatCompletionResponse|error {
         test:assertEquals(payload.model, GPT_4O);
