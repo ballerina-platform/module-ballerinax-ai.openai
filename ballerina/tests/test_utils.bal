@@ -477,7 +477,7 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
     }
 
     if message.startsWith("Name top 10 world class cricketers") {
-        return [{"type": "text", "text": "Name top 10 world class cricketers"};] 
+        return [{"type": "text", "text": "Name top 10 world class cricketers"}]; 
     }
 
     if message.startsWith("Name a random world class cricketer in India") {
