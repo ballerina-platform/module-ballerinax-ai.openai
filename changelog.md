@@ -2,7 +2,10 @@
 
 This file documents all significant changes made to the Ballerina ai.openai package across releases.
 
-## [Unreleased]
+## [Un-released]
+
+### Updated
+- [Update batchEmbed to Validate Chunks at Element Level](https://github.com/ballerina-platform/ballerina-library/issues/8171)
 
 ## [1.2.1] - 2025-07-27
 
