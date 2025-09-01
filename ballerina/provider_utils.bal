@@ -252,7 +252,6 @@ isolated function getLlMResponse(chat:Client llmClient,
         });
         
         runtime:sleep(retryInterval);
-
         return getLlMResponse(llmClient, request, expectedResponseTypedesc, isOriginallyJsonObject,
                 retryCount - 1, retryInterval);
     }
