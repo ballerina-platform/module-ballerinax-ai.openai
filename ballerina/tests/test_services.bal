@@ -49,6 +49,7 @@ service /llm on new http:Listener(8080) {
 isolated function validateChatCompletionPayload(json payload) 
         returns [chat:ChatCompletionRequestMessage[], string]|error {
     test:assertEquals(payload.model, GPT_4O);
+    test:assertEquals(payload.temperature, DEFAULT_TEMPERATURE);
     chat:ChatCompletionRequestMessage[] messages = check (check payload.messages).fromJsonWithType();
     chat:ChatCompletionRequestMessage message = messages[0];
     test:assertEquals(message.role, "user");
