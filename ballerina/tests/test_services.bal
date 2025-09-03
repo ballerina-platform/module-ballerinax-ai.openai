@@ -28,7 +28,7 @@ service /llm on new http:Listener(8080) {
                 check validateChatCompletionPayload(payload);
         
         check assertContentParts(messages, initialText, 0);
-        return check getTestServiceResponse(initialText);
+        return getTestServiceResponse(initialText);
     }
 
     resource function post openai\-retry/chat/completions(@http:Payload json payload)
@@ -42,7 +42,7 @@ service /llm on new http:Listener(8080) {
         }
 
         check assertContentParts(messages, initialText, index);
-        return check getTestServiceResponse(initialText, index);
+        return getTestServiceResponse(initialText, index);
     }
 }
 
