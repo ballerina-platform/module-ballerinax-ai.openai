@@ -90,7 +90,7 @@ public distinct isolated client class EmbeddingProvider {
     # + chunks - The array of chunks to be converted into embeddings
     # + return - An array of embeddings on success, or an `ai:Error`
     isolated remote function batchEmbed(ai:Chunk[] chunks) returns ai:Embedding[]|ai:Error {
-        if chunks !is ai:TextChunk[]|ai:TextDocument[] {
+        if !isAllTextChunks(chunks) {
             return error("Unsupported chunk type. only 'ai:TextChunk[]|ai:TextDocument[]' is supported");
         }
         do {
@@ -105,4 +105,8 @@ public distinct isolated client class EmbeddingProvider {
             return error ai:Error("Unable to obtain embedding for the provided document", e);
         }
     }
+}
+
+isolated function isAllTextChunks(ai:Chunk[] chunks) returns boolean {
+    return chunks.every(chunk => chunk is ai:TextChunk|ai:TextDocument);
 }
