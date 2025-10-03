@@ -7,7 +7,7 @@ icon="icon.png"
 name = "ai.openai"
 org = "ballerinax"
 repository = "https://github.com/ballerina-platform/module-ballerinax-ai.openai"
-version = "1.2.2"
+version = "1.2.3"
 
 [platform.java21]
 graalvmCompatible = true
@@ -15,5 +15,5 @@ graalvmCompatible = true
 [[platform.java21.dependency]]
 groupId = "io.ballerina.lib"
 artifactId = "ai.openai-native"
-version = "1.2.2"
-path = "../native/build/libs/ai.openai-native-1.2.2.jar"
+version = "1.2.3"
+path = "../native/build/libs/ai.openai-native-1.2.3-SNAPSHOT.jar"
