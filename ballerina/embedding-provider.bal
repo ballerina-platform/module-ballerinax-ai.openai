@@ -15,6 +15,7 @@
 // under the License.
 
 import ballerina/ai;
+import ballerina/ai.observe;
 import ballerinax/openai.embeddings;
 
 # EmbeddingProvider provides an interface for interacting with OpenAI Embedding Models.
@@ -70,18 +71,31 @@ public distinct isolated client class EmbeddingProvider {
     # + chunk - The `ai:Chunk` containing the content to embed
     # + return - The resulting `ai:Embedding` on success; otherwise, returns an `ai:Error`
     isolated remote function embed(ai:Chunk chunk) returns ai:Embedding|ai:Error {
+        observe:EmbeddingSpan span = observe:createEmbeddingSpan(self.modelType);
+        span.addProvider("openai");
+
         if chunk !is ai:TextDocument|ai:TextChunk {
-            return error ai:Error("Unsupported document type. only 'ai:TextDocument|ai:TextChunk' is supported");
+            ai:Error err = error("Unsupported document type. only 'ai:TextDocument|ai:TextChunk' is supported");
+            span.close(err);
+            return err;
         }
         do {
             embeddings:CreateEmbeddingRequest request = {
                 model: self.modelType,
                 input: chunk.content
             };
+            span.addInputContent(chunk.content);
             embeddings:CreateEmbeddingResponse response = check self.embeddingsClient->/embeddings.post(request);
-            return check trap response.data[0].embedding;
+            span.addInputTokenCount(response.usage.prompt_tokens);
+            span.addResponseModel(response.model);
+
+            ai:Embedding embedding = check trap response.data[0].embedding;
+            span.close();
+            return embedding;
         } on fail error e {
-            return error ai:Error("Unable to obtain embedding for the provided document", e);
+            ai:Error err = error("Unable to obtain embedding for the provided document", e);
+            span.close(err);
+            return err;
         }
     }
 
@@ -90,19 +104,33 @@ public distinct isolated client class EmbeddingProvider {
     # + chunks - The array of chunks to be converted into embeddings
     # + return - An array of embeddings on success, or an `ai:Error`
     isolated remote function batchEmbed(ai:Chunk[] chunks) returns ai:Embedding[]|ai:Error {
+        observe:EmbeddingSpan span = observe:createEmbeddingSpan(self.modelType);
+        span.addProvider("openai");
+
         if !isAllTextChunks(chunks) {
-            return error("Unsupported chunk type. only 'ai:TextChunk[]|ai:TextDocument[]' is supported");
+            ai:Error err = error("Unsupported chunk type. only 'ai:TextChunk[]|ai:TextDocument[]' is supported");
+            span.close(err);
+            return err;
         }
         do {
+            string[] input = chunks.map(chunk => chunk.content.toString());
             embeddings:CreateEmbeddingRequest request = {
                 model: self.modelType,
-                input: chunks.map(chunk => chunk.content.toString())
+                input
             };
+            span.addInputContent(input);
             embeddings:CreateEmbeddingResponse response = check self.embeddingsClient->/embeddings.post(request);
-            return from embeddings:CreateEmbeddingResponse_data e in response.data
+            span.addInputTokenCount(response.usage.prompt_tokens);
+            span.addResponseModel(response.model);
+
+            ai:Embedding[] embeddings = from embeddings:CreateEmbeddingResponse_data e in response.data
                 select e.embedding;
+            span.close();
+            return embeddings;
         } on fail error e {
-            return error ai:Error("Unable to obtain embedding for the provided document", e);
+            ai:Error err = error ("Unable to obtain embedding for the provided document", e);
+            span.close(err);
+            return err;
         }
     }
 }

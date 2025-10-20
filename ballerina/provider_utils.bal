@@ -15,6 +15,7 @@
 // under the License.
 
 import ballerina/ai;
+import ballerina/ai.observe;
 import ballerina/constraint;
 import ballerina/lang.array;
 import ballerinax/openai.chat;
@@ -27,6 +28,7 @@ type ResponseSchema record {|
 type DocumentContentPart TextContentPart|ImageContentPart;
 
 type TextContentPart chat:ChatCompletionRequestMessageContentPartText;
+
 type ImageContentPart chat:ChatCompletionRequestMessageContentPartImage;
 
 const JSON_CONVERSION_ERROR = "FromJsonStringError";
@@ -90,17 +92,22 @@ isolated function getGetResultsToolChoice() returns chat:ChatCompletionNamedTool
     }
 };
 
-isolated function getGetResultsTool(map<json> parameters) returns chat:ChatCompletionTool[]|error =>
-    [
+isolated function getGetResultsTool(map<json> parameters) returns chat:ChatCompletionTool[]|ai:Error {
+    chat:FunctionParameters|error toolParams = parameters.cloneWithType();
+    if toolParams is error {
+        return error("Error in generated schema: " + toolParams.message());
+    }
+    return [
         {
             'type: FUNCTION,
             'function: {
                 name: GET_RESULTS_TOOL,
-                parameters: check parameters.cloneWithType(),
+                parameters: toolParams,
                 description: "Tool to call with the response from a large language model (LLM) for a user prompt."
             }
         }
     ];
+}
 
 isolated function generateChatCreationContent(ai:Prompt prompt)
                         returns DocumentContentPart[]|ai:Error {
@@ -166,11 +173,11 @@ isolated function buildTextContentPart(string content) returns TextContentPart? 
 
 isolated function buildImageContentPart(ai:ImageDocument doc) returns ImageContentPart|ai:Error =>
     {
-        'type: "image_url",
-        image_url: {
-            url: check buildImageUrl(doc.content, doc.metadata?.mimeType)
-        }
-    };
+    'type: "image_url",
+    image_url: {
+        url: check buildImageUrl(doc.content, doc.metadata?.mimeType)
+    }
+};
 
 isolated function buildImageUrl(ai:Url|byte[] content, string? mimeType) returns string|ai:Error {
     if content is ai:Url {
@@ -201,13 +208,21 @@ isolated function handleParseResponseError(error chatResponseError) returns erro
     return chatResponseError;
 }
 
-isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES modelType, 
+isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES modelType,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc) returns anydata|ai:Error {
-    DocumentContentPart[] content = check generateChatCreationContent(prompt);
-    ResponseSchema ResponseSchema = check getExpectedResponseSchema(expectedResponseTypedesc);
-    chat:ChatCompletionTool[]|error tools = getGetResultsTool(ResponseSchema.schema);
-    if tools is error {
-        return error("Error while generating the tool: " + tools.message());
+    observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
+    span.addProvider("openai");
+
+    DocumentContentPart[] content;
+    ResponseSchema responseSchema;
+    chat:ChatCompletionTool[] tools;
+    do {
+        content = check generateChatCreationContent(prompt);
+        responseSchema = check getExpectedResponseSchema(expectedResponseTypedesc);
+        tools = check getGetResultsTool(responseSchema.schema);
+    } on fail ai:Error err {
+        span.close(err);
+        return err;
     }
 
     chat:CreateChatCompletionRequest request = {
@@ -221,43 +236,69 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
         tools,
         tool_choice: getGetResultsToolChoice()
     };
-
-    chat:CreateChatCompletionResponse|error response =
-        llmClient->/chat/completions.post(request);
+    span.addInputMessages(request.messages.toJson());
+    chat:CreateChatCompletionResponse|error response = llmClient->/chat/completions.post(request);
     if response is error {
-        return error("LLM call failed: " + response.message(), detail = response.detail(), cause = response.cause());
+        ai:Error err = error("LLM call failed: " + response.message(), detail = response.detail(), cause = response.cause());
+        span.close(err);
+        return err;
+    }
+
+    string? responseId = response.id;
+    if responseId is string {
+        span.addResponseId(responseId);
+    }
+    int? inputTokens = response.usage?.prompt_tokens;
+    if inputTokens is int {
+        span.addInputTokenCount(inputTokens);
+    }
+    int? outputTokens = response.usage?.completion_tokens;
+    if outputTokens is int {
+        span.addOutputTokenCount(outputTokens);
     }
 
     chat:CreateChatCompletionResponse_choices[] choices = response.choices;
-
     if choices.length() == 0 {
-        return error("No completion choices");
+        ai:Error err = error("No completion choices");
+        span.close(err);
+        return err;
     }
 
     chat:ChatCompletionResponseMessage? message = choices[0].message;
     chat:ChatCompletionMessageToolCall[]? toolCalls = message?.tool_calls;
     if toolCalls is () || toolCalls.length() == 0 {
-        return error(NO_RELEVANT_RESPONSE_FROM_THE_LLM);
+        ai:Error err = error(NO_RELEVANT_RESPONSE_FROM_THE_LLM);
+        span.close(err);
+        return err;
     }
 
     chat:ChatCompletionMessageToolCall tool = toolCalls[0];
     map<json>|error arguments = tool.'function.arguments.fromJsonStringWithType();
     if arguments is error {
-        return error(NO_RELEVANT_RESPONSE_FROM_THE_LLM);
+        ai:Error err = error(NO_RELEVANT_RESPONSE_FROM_THE_LLM);
+        span.close(err);
+        return err;
     }
 
     anydata|error res = parseResponseAsType(arguments.toJsonString(), expectedResponseTypedesc,
-            ResponseSchema.isOriginallyJsonObject);
+            responseSchema.isOriginallyJsonObject);
     if res is error {
-        return error ai:LlmInvalidGenerationError(string `Invalid value returned from the LLM Client, expected: '${
+        ai:Error err = error ai:LlmInvalidGenerationError(string `Invalid value returned from the LLM Client, expected: '${
             expectedResponseTypedesc.toBalString()}', found '${res.toBalString()}'`);
+        span.close(err);
+        return err;
     }
 
     anydata|error result = res.ensureType(expectedResponseTypedesc);
-
     if result is error {
-        return error ai:LlmInvalidGenerationError(string `Invalid value returned from the LLM Client, expected: '${
+        ai:Error err = error ai:LlmInvalidGenerationError(string `Invalid value returned from the LLM Client, expected: '${
             expectedResponseTypedesc.toBalString()}', found '${(typeof response).toBalString()}'`);
+        span.close(err);
+        return err;
     }
+
+    span.addOutputMessages(result.toJson());
+    span.addOutputType(observe:JSON);
+    span.close();
     return result;
 }
