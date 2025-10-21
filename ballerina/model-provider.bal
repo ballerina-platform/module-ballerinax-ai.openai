@@ -144,6 +144,7 @@ public isolated distinct client class ModelProvider {
             return message;
         }
         span.addOutputMessages(message);
+        span.addOutputType(observe:TEXT);
         span.close();
         return message;
     }
