@@ -15,6 +15,7 @@
 // under the License.
 
 import ballerina/ai;
+import ballerina/ai.observe;
 import ballerina/jballerina.java;
 import ballerinax/openai.chat;
 
@@ -86,6 +87,17 @@ public isolated distinct client class ModelProvider {
     # + return - Function to be called, chat response or an error in-case of failures
     isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages, ai:ChatCompletionFunctions[] tools,
             string? stop = ()) returns ai:ChatAssistantMessage|ai:Error {
+        observe:ChatSpan span = observe:createChatSpan(self.modelType);
+        span.addProvider("openai");
+        if stop is string {
+            span.addStopSequence(stop);
+        }
+        span.addTemperature(self.temperature);
+        json|ai:Error inputMessage = convertMessageToJson(messages);
+        if inputMessage is json {
+            span.addInputMessages(inputMessage);
+        }
+
         chat:CreateChatCompletionRequest request = {
             max_completion_tokens: self.maxTokens,
             temperature: self.temperature,
@@ -96,23 +108,50 @@ public isolated distinct client class ModelProvider {
         boolean supportsToolCalls = isToolCallSupported(self.modelType);
         if supportsToolCalls && tools.length() > 0 {
             request.functions = tools;
+            span.addTools(tools);
         }
 
         chat:CreateChatCompletionResponse|error response = self.llmClient->/chat/completions.post(request);
         if response is error {
-            return error ai:LlmConnectionError("Error while connecting to the model", response);
+            ai:Error err = error ai:LlmConnectionError("Error while connecting to the model", response);
+            span.close(err);
+            return err;
         }
         chat:CreateChatCompletionResponse_choices[] choices = response.choices;
         if choices.length() == 0 {
-            return error ai:LlmInvalidResponseError("Empty response from the model when using function call API");
+            ai:Error err = error ai:LlmInvalidResponseError("Empty response from the model when using function call API");
+            span.close(err);
+            return err;
         }
 
-        return self.convertResponseToAssistantMessage(choices[0].message);
+        span.addResponseId(response.id);
+        int? inputTokens = response.usage?.prompt_tokens;
+        if inputTokens is int {
+            span.addInputTokenCount(inputTokens);
+        }
+        int? outputTokens = response.usage?.completion_tokens;
+        if outputTokens is int {
+            span.addOutputTokenCount(outputTokens);
+        }
+        string? finishReason = response.choices[0].finish_reason;
+        if finishReason is string {
+            span.addFinishReason(finishReason);
+        }
+
+        ai:ChatAssistantMessage|ai:Error message = self.convertResponseToAssistantMessage(choices[0].message);
+        if message is ai:Error {
+            span.close(message);
+            return message;
+        }
+        span.addOutputMessages(message);
+        span.addOutputType(observe:TEXT);
+        span.close();
+        return message;
     }
 
     # Sends a chat request to the model and generates a value that belongs to the type
     # corresponding to the type descriptor argument.
-    # 
+    #
     # + prompt - The prompt to use in the chat messages
     # + td - Type descriptor specifying the expected return type format
     # + return - Generates a value that belongs to the type, or an error if generation fails
@@ -254,4 +293,15 @@ isolated function getChatMessageStringContent(ai:Prompt|string prompt) returns s
         promptStr += insertion.toString() + str;
     }
     return promptStr.trim();
+}
+
+isolated function convertMessageToJson(ai:ChatMessage[]|ai:ChatMessage messages) returns json|ai:Error {
+    if messages is ai:ChatMessage[] {
+        return messages.'map(msg => msg is ai:ChatUserMessage|ai:ChatSystemMessage ? check convertMessageToJson(msg) : msg);
+    }
+    if messages is ai:ChatUserMessage|ai:ChatSystemMessage {
+
+    }
+    return messages !is ai:ChatUserMessage|ai:ChatSystemMessage ? messages :
+        {role: messages.role, content: check getChatMessageStringContent(messages.content), name: messages.name};
 }
