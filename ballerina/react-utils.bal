@@ -30,7 +30,7 @@ const FINAL_ANSWER_KEY = "Final Answer";
 final string:RegExp ACTION_INPUT_REGEX = re `^action.?input`;
 final string:RegExp FINAL_ANSWER_REGEX = re `^final.?answer`;
 
-isolated function isToolCallSupported(OPEN_AI_MODEL_NAMES model) returns boolean => model != CHATGPT_4O_LATEST;
+isolated function isToolCallSupported(OPEN_AI_MODEL_NAMES model) returns boolean => true;
 
 isolated function constructReActPrompt(ToolInfo toolInfo, string instructions) returns string =>
 string `Respond to the human as helpfully and accurately as possible.

@@ -21,6 +21,7 @@ import io.ballerina.runtime.api.Environment;
 import io.ballerina.runtime.api.Module;
 import io.ballerina.runtime.api.utils.StringUtils;
 import io.ballerina.runtime.api.values.BObject;
+import io.ballerina.runtime.api.values.BString;
 import io.ballerina.runtime.api.values.BTypedesc;
 
 /**
@@ -29,11 +30,26 @@ import io.ballerina.runtime.api.values.BTypedesc;
  * @since 1.0.0
  */
 public class Generator {
+    private static final Module MODULE = new Module("ballerinax", "ai.openai", "1");
+
     public static Object generate(Environment env, BObject modelProvider,
                                   BObject prompt, BTypedesc expectedResponseTypedesc) {
+        BString apiType = (BString) modelProvider.get(StringUtils.fromString("apiType"));
+
+        if ("responses".equals(apiType.getValue())) {
+            return env.getRuntime().callFunction(
+                    MODULE, "generateLlmResponseViaResponses", null,
+                    modelProvider.get(StringUtils.fromString("responsesClient")),
+                    modelProvider.get(StringUtils.fromString("modelType")),
+                    prompt, expectedResponseTypedesc,
+                    modelProvider.get(StringUtils.fromString("reasoningEffort")));
+        }
+
+        // Default: Chat Completions (existing behavior)
         return env.getRuntime().callFunction(
-                new Module("ballerinax", "ai.openai", "1"), "generateLlmResponse", null,
+                MODULE, "generateLlmResponse", null,
                 modelProvider.get(StringUtils.fromString("llmClient")),
-                modelProvider.get(StringUtils.fromString("modelType")), prompt, expectedResponseTypedesc);
+                modelProvider.get(StringUtils.fromString("modelType")),
+                prompt, expectedResponseTypedesc);
     }
 }

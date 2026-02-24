@@ -18,7 +18,8 @@ import ballerina/ai;
 import ballerina/ai.observe;
 import ballerina/constraint;
 import ballerina/lang.array;
-import ballerinax/openai.chat;
+import ballerinax/openai as chat;
+import ballerina/log;
 
 type ResponseSchema record {|
     map<json> schema;
@@ -210,6 +211,7 @@ isolated function handleParseResponseError(error chatResponseError) returns erro
 
 isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES modelType,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc) returns anydata|ai:Error {
+    log:printInfo("Generating LLM response for Chat Completion API: ");
     observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
     span.addProvider("openai");
 
@@ -243,6 +245,7 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
         span.close(err);
         return err;
     }
+    log:printInfo("Raw Chat Completions response received (generate)", response = response.toJsonString());
 
     string? responseId = response.id;
     if responseId is string {
@@ -257,7 +260,14 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
         span.addOutputTokenCount(outputTokens);
     }
 
-    chat:CreateChatCompletionResponse_choices[] choices = response.choices;
+    record {|
+        "stop"|"length"|"tool_calls"|"content_filter"|"function_call" finish_reason; 
+        int index; 
+        chat:ChatCompletionResponseMessage message; 
+        anydata logprobs; 
+        anydata...;
+    |}[] choices = response.choices;
+
     if choices.length() == 0 {
         ai:Error err = error("No completion choices");
         span.close(err);
@@ -265,20 +275,26 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
     }
 
     chat:ChatCompletionResponseMessage? message = choices[0].message;
-    chat:ChatCompletionMessageToolCall[]? toolCalls = message?.tool_calls;
+    chat:ChatCompletionMessageToolCalls? toolCalls = message?.tool_calls;
     if toolCalls is () || toolCalls.length() == 0 {
         ai:Error err = error(NO_RELEVANT_RESPONSE_FROM_THE_LLM);
         span.close(err);
         return err;
     }
 
-    chat:ChatCompletionMessageToolCall tool = toolCalls[0];
-    map<json>|error arguments = tool.'function.arguments.fromJsonStringWithType();
+    chat:ChatCompletionMessageToolCall|chat:ChatCompletionMessageCustomToolCall tool = toolCalls[0];
+    if tool is chat:ChatCompletionMessageCustomToolCall {
+        span.close(error("Custom tools are not supported, Found tool call: " + tool.toJsonString()));
+        return error("Custom tools are not supported yet, Found tool call: " + tool.toJsonString());
+    }
+
+    map<json>|error arguments = (<chat:ChatCompletionMessageToolCall>tool).'function.arguments.fromJsonStringWithType();
     if arguments is error {
         ai:Error err = error(NO_RELEVANT_RESPONSE_FROM_THE_LLM);
         span.close(err);
         return err;
     }
+    log:printInfo("Parsed tool call arguments (generate)", arguments = arguments.toJsonString());
 
     anydata|error res = parseResponseAsType(arguments.toJsonString(), expectedResponseTypedesc,
             responseSchema.isOriginallyJsonObject);
@@ -296,6 +312,7 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
         span.close(err);
         return err;
     }
+    log:printInfo("Converted response to expected Ballerina type (generate/ChatCompletions)", result = result.toJsonString());
 
     span.addOutputMessages(result.toJson());
     span.addOutputType(observe:JSON);

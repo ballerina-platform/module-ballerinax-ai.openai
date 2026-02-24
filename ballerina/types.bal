@@ -15,6 +15,8 @@
 // under the License.
 
 import ballerina/http;
+import ballerina/ai;
+import ballerinax/openai as chat;
 
 # Configurations for controlling the behaviours when communicating with a remote HTTP endpoint.
 @display {label: "Connection Configuration"}
@@ -77,6 +79,12 @@ public type ConnectionConfig record {|
     boolean validation = true;
 |};
 
+# Defines which OpenAI API endpoint to use for model interactions (internal).
+enum ApiType {
+    CHAT_COMPLETIONS = "chat_completions",
+    RESPONSES = "responses"
+}
+
 # Model types for OpenAI
 @display {label: "OpenAI Model Names"}
 public enum OPEN_AI_MODEL_NAMES {
@@ -96,6 +104,11 @@ public enum OPEN_AI_MODEL_NAMES {
     O1_2024_12_17 = "o1-2024-12-17",
     O1_PRO_2025_03_19 = "o1-pro-2025-03-19",
     O1_PRO = "o1-pro",
+    O1_MINI = "o1-mini",
+    O3 = "o3",
+    O3_MINI = "o3-mini",
+    O3_PRO = "o3-pro",
+    O4_MINI = "o4-mini",
     GPT_3_5_TURBO = "gpt-3.5-turbo",
     GPT_3_5_TURBO_16K = "gpt-3.5-turbo-16k",
     GPT_3_5_TURBO_1106 = "gpt-3.5-turbo-1106",
@@ -106,8 +119,25 @@ public enum OPEN_AI_MODEL_NAMES {
     GPT_4_1_MINI = "gpt-4.1-mini",
     GPT_4_1_NANO = "gpt-4.1-nano",
     GPT_4_1_NANO_2025_04_14 = "gpt-4.1-nano-2025-04-14",
+    GPT_5 = "gpt-5",
+    GPT_5_MINI = "gpt-5-mini",
+    GPT_5_NANO = "gpt-5-nano",
+    GPT_5_PRO = "gpt-5-pro",
+    GPT_5_CHAT = "gpt-5-chat",
+    GPT_5_CODEX = "gpt-5-codex",
+    GPT_5_1 = "gpt-5.1",
+    GPT_5_1_CHAT = "gpt-5.1-chat",
+    GPT_5_1_CODEX = "gpt-5.1-codex",
+    GPT_5_1_CODEX_MINI = "gpt-5.1-codex-mini",
+    GPT_5_2 = "gpt-5.2",
+    GPT_5_2_CHAT = "gpt-5.2-chat",
+    GPT_5_2_CODEX = "gpt-5.2-codex",
+    GPT_5_2_PRO = "gpt-5.2-pro",
+    GPT_5_1_CODEX_MAX = "gpt-5.1-codex-max",
     CHATGPT_4O_LATEST = "chatgpt-4o-latest",
-    GPT_4O_AUDIO_PREVIEW = "gpt-4o-audio-preview"
+    GPT_4O_AUDIO_PREVIEW = "gpt-4o-audio-preview",
+    COMPUTER_USE_PREVIEW = "computer-use-preview",
+    CODEX_MINI_LATEST = "codex-mini-latest"
 }
 
 @display {label: "OpenAI Embedding Model Names"}
@@ -125,3 +155,91 @@ type ToolInfo readonly & record {|
 type LlmChatResponse record {|
     string content;
 |};
+
+type CodeInterpreterTool record {|
+    *ai:InbuiltModelTool;
+    "code_interpreter" name;
+    record {|
+        string|chat:AutoCodeInterpreterToolParam container;
+    |} configurations;
+|};
+
+type WebsearchTool record {|
+    *ai:InbuiltModelTool;
+    "web_search"|"web_search_2025_08_26" name;
+    record {|
+        anydata filters?;
+        chat:WebSearchApproximateLocation user_location?;
+        # High level guidance for the amount of context window space to use for the search. One of `low`, `medium`, or `high`. `medium` is the default.
+        "low"|"medium"|"high" search_context_size = "medium";
+    |} configurations;
+|};
+
+type LocalShellTool record {|
+    *ai:InbuiltModelTool;
+    # The type of the local shell tool. Always `local_shell`.
+    "local_shell" name;
+    never configurations;
+|};
+
+type FileSearchTool record {|
+    *ai:InbuiltModelTool;
+    "file_search" name;
+    record {|
+        string[] vector_store_ids;
+        int max_num_results?;
+        anydata ranking_options?;
+        anydata filters?;
+    |} configurations;
+|};
+
+type ComputerUsePreviewTool record {|
+    *ai:InbuiltModelTool;
+    # The type of the computer use tool. Always `computer_use_preview`.
+    "computer_use_preview" name;
+    record {|
+        "windows"|"mac"|"linux"|"ubuntu"|"browser" environment;
+        int display_width;
+        int display_height;
+    |} configurations;
+|};
+
+type McpTool record {|
+    *ai:InbuiltModelTool;
+    "mcp" name;
+    record {|
+        string server_label;
+        string server_url?;
+        string server_description?;
+        string authorization?;
+        anydata headers?;
+        anydata allowed_tools?;
+        anydata require_approval?;
+    |} configurations;
+|};
+
+type ImageGenTool record {|
+    *ai:InbuiltModelTool;
+    "image_generation" name;
+    record {|
+        string model?;
+        "low"|"medium"|"high"|"auto" quality?;
+        "1024x1024"|"1024x1536"|"1536x1024"|"auto" size?;
+        "png"|"webp"|"jpeg" output_format?;
+        int output_compression?;
+        "auto"|"low" moderation?;
+        "transparent"|"opaque"|"auto" background?;
+        anydata input_image_mask?;
+        int partial_images?;
+    |} configurations;
+|};
+
+type FunctionShellTool record {|
+    *ai:InbuiltModelTool;
+    "shell" name;
+    record {|
+        anydata environment?;
+    |} configurations;
+|};
+
+type OpenAIInbuiltModelTool CodeInterpreterTool|WebsearchTool|LocalShellTool|FileSearchTool|ComputerUsePreviewTool|McpTool|ImageGenTool|FunctionShellTool;
