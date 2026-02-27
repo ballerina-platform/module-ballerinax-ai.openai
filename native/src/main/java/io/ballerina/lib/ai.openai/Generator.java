@@ -42,7 +42,7 @@ public class Generator {
                     modelProvider.get(StringUtils.fromString("responsesClient")),
                     modelProvider.get(StringUtils.fromString("modelType")),
                     prompt, expectedResponseTypedesc,
-                    modelProvider.get(StringUtils.fromString("reasoningEffort")));
+                    modelProvider.get(StringUtils.fromString("reasoning")));
         }
 
         // Default: Chat Completions (existing behavior)

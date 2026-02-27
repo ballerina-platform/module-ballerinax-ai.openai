@@ -269,7 +269,7 @@ isolated function generateLlmResponseViaResponses(chat:Client responsesClient, O
         content: responsesContent
     };
 
-    chat:InputParam|error inputParam = [inputMessage].cloneWithType(chat:InputParam);
+    chat:InputParam|error inputParam = [inputMessage].cloneWithType();
     if inputParam is error {
         ai:Error err = error("Failed to convert input items to InputParam: " + inputParam.message());
         span.close(err);
