@@ -17,7 +17,7 @@
 import ballerina/ai;
 import ballerina/ai.observe;
 import ballerina/log;
-import ballerinax/openai as chat;
+import ballerinax/openai.responses as responses;
 
 # Converts ai:ChatMessage array to Responses API input items and instructions.
 #
@@ -30,16 +30,16 @@ import ballerinax/openai as chat;
 # + return - A tuple of [input items, optional instructions] or an error
 isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage messages,
         ai:ChatCompletionFunctions[] tools, OPEN_AI_MODEL_NAMES modelType)
-        returns [chat:InputParam, string?]|ai:Error {
+        returns [responses:InputParam, string?]|ai:Error {
     if messages is ai:ChatUserMessage {
-        chat:InputItem item = <chat:EasyInputMessage>{
+        responses:InputItem item = <responses:EasyInputMessage>{
             role: ai:USER,
             content: check getChatMessageStringContent(messages.content)
         };
         return [[item], ()];
     }
 
-    chat:InputItem[] inputItems = [];
+    responses:InputItem[] inputItems = [];
     string[] instructionParts = [];
     boolean supportsToolCalls = isToolCallSupported(modelType);
 
@@ -51,7 +51,7 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
             }
             instructionParts.push(content);
         } else if message is ai:ChatUserMessage {
-            inputItems.push(<chat:EasyInputMessage>{
+            inputItems.push(<responses:EasyInputMessage>{
                 role: ai:USER,
                 content: check getChatMessageStringContent(message.content)
             });
@@ -61,7 +61,7 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
                 // If the assistant message also has text content, emit it first
                 string? content = message?.content;
                 if content is string {
-                    inputItems.push(<chat:EasyInputMessage>{role: ai:ASSISTANT, content});
+                    inputItems.push(<responses:EasyInputMessage>{role: ai:ASSISTANT, content});
                 }
                 // Emit each function call as a separate input item
                 foreach ai:FunctionCall tc in toolCalls {
@@ -74,7 +74,7 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
                     });
                 }
             } else {
-                inputItems.push(<chat:EasyInputMessage>{
+                inputItems.push(<responses:EasyInputMessage>{
                     role: ai:ASSISTANT,
                     content: message?.content ?: ""
                 });
@@ -98,9 +98,9 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
 #
 # + tools - The tool definitions to convert
 # + return - Array of function tool objects in Responses API flat format
-isolated function convertToResponsesTools(ai:ChatCompletionFunctions[] tools) returns chat:FunctionTool[] {
+isolated function convertToResponsesTools(ai:ChatCompletionFunctions[] tools) returns responses:FunctionTool[] {
     return from ai:ChatCompletionFunctions tool in tools
-        select <chat:FunctionTool>{
+        select <responses:FunctionTool>{
             'type: "function",
             name: tool.name,
             description: tool.description,
@@ -116,8 +116,8 @@ isolated function convertToResponsesTools(ai:ChatCompletionFunctions[] tools) re
 #
 # + tools - The inbuilt tool definitions to convert
 # + return - Array of chat:Tool objects or an error
-isolated function convertInbuiltToolsToResponsesFormat(ai:InbuiltModelTool[] tools) returns chat:Tool[]|ai:Error {
-    chat:Tool[] result = [];
+isolated function convertInbuiltToolsToResponsesFormat(ai:InbuiltModelTool[] tools) returns responses:Tool[]|ai:Error {
+    responses:Tool[] result = [];
     foreach ai:InbuiltModelTool tool in tools {
         map<anydata> toolMap = {'type: tool.name};
         map<anydata>? configs = tool.configurations;
@@ -127,7 +127,7 @@ isolated function convertInbuiltToolsToResponsesFormat(ai:InbuiltModelTool[] too
                 toolMap[key] = value;
             }
         }
-        chat:Tool|error converted = toolMap.cloneWithType();
+        responses:Tool|error converted = toolMap.cloneWithType();
         if converted is error {
             return error ai:Error("Failed to convert inbuilt tool '" + tool.name + "' to Responses API format." + "Found " + toolMap.toJsonString() , converted);
         }
@@ -142,7 +142,7 @@ isolated function convertInbuiltToolsToResponsesFormat(ai:InbuiltModelTool[] too
 #
 # + response - The Responses API response
 # + return - A ChatAssistantMessage or an error
-isolated function convertResponsesOutputToAssistantMessage(chat:Response response)
+isolated function convertResponsesOutputToAssistantMessage(responses:Response response)
         returns ai:ChatAssistantMessage|ai:Error {
     ai:ChatAssistantMessage result = {role: ai:ASSISTANT};
     ai:FunctionCall[] functionCalls = [];
@@ -153,17 +153,17 @@ isolated function convertResponsesOutputToAssistantMessage(chat:Response respons
     }
 
     // Scan output items for message and function_call items using type-safe pattern matching
-    foreach chat:OutputItem item in response.output {
-        if item is chat:OutputMessage {
+    foreach responses:OutputItem item in response.output {
+        if item is responses:OutputMessage {
             // Extract text content from message output items
-            foreach chat:OutputMessageContent contentPart in item.content {
-                if contentPart is chat:OutputTextContent {
+            foreach responses:OutputMessageContent contentPart in item.content {
+                if contentPart is responses:OutputTextContent {
                     if contentPart.text.length() > 0 {
                         result.content = (result.content ?: "") + contentPart.text;
                     }
                 }
             }
-        } else if item is chat:FunctionToolCall {
+        } else if item is responses:FunctionToolCall {
             json|error parsedArgs = item.arguments.fromJsonString();
             if parsedArgs is error {
                 return error ai:LlmInvalidResponseError(
@@ -228,7 +228,7 @@ isolated function convertContentPartsForResponses(DocumentContentPart[] parts) r
 # + prompt - The user prompt
 # + expectedResponseTypedesc - The expected response type descriptor
 # + return - The parsed response or an error
-isolated function generateLlmResponseViaResponses(chat:Client responsesClient, OPEN_AI_MODEL_NAMES modelType,
+isolated function generateLlmResponseViaResponses(responses:Client responsesClient, OPEN_AI_MODEL_NAMES modelType,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc, string? reasoningEffort = ())
         returns anydata|ai:Error {
     log:printInfo("Generating LLM response via Responses API for model: " + modelType.toString());
@@ -246,7 +246,7 @@ isolated function generateLlmResponseViaResponses(chat:Client responsesClient, O
     }
 
     // Build the getResults tool as a typed FunctionTool
-    chat:FunctionTool getResultsTool = {
+    responses:FunctionTool getResultsTool = {
         'type: "function",
         name: GET_RESULTS_TOOL,
         parameters: responseSchema.schema,
@@ -255,7 +255,7 @@ isolated function generateLlmResponseViaResponses(chat:Client responsesClient, O
     };
 
     // Build tool_choice for Responses API
-    chat:ToolChoiceFunction toolChoice = {
+    responses:ToolChoiceFunction toolChoice = {
         'type: "function",
         name: GET_RESULTS_TOOL
     };
@@ -269,25 +269,25 @@ isolated function generateLlmResponseViaResponses(chat:Client responsesClient, O
         content: responsesContent
     };
 
-    chat:InputParam|error inputParam = [inputMessage].cloneWithType();
+    responses:InputParam|error inputParam = [inputMessage].cloneWithType();
     if inputParam is error {
         ai:Error err = error("Failed to convert input items to InputParam: " + inputParam.message());
         span.close(err);
         return err;
     }
-    chat:CreateResponse request = {
+    responses:CreateResponse request = {
         model: modelType,
         input: inputParam,
         tools: [getResultsTool],
         tool_choice: toolChoice
     };
     if reasoningEffort is string {
-        request.reasoning = <chat:Reasoning>{effort: <chat:ReasoningEffort>reasoningEffort};
+        request.reasoning = <responses:Reasoning>{effort: <responses:ReasoningEffort>reasoningEffort};
     }
 
     span.addInputMessages([inputMessage].toJson());
 
-    chat:Response|error response = responsesClient->/responses.post(request);
+    responses:Response|error response = responsesClient->/responses.post(request);
     if response is error {
         ai:Error err = error("LLM call failed: " + response.message(), detail = response.detail(), cause = response.cause());
         span.close(err);
@@ -297,16 +297,16 @@ isolated function generateLlmResponseViaResponses(chat:Client responsesClient, O
 
     // Record observability
     span.addResponseId(response.id);
-    chat:ResponseUsage? usage = response.usage;
-    if usage is chat:ResponseUsage {
+    responses:ResponseUsage? usage = response.usage;
+    if usage is responses:ResponseUsage {
         span.addInputTokenCount(usage.input_tokens);
         span.addOutputTokenCount(usage.output_tokens);
     }
 
     // Find the function_call output item for getResults
     string? toolArguments = ();
-    foreach chat:OutputItem item in response.output {
-        if item is chat:FunctionToolCall && item.name == GET_RESULTS_TOOL {
+    foreach responses:OutputItem item in response.output {
+        if item is responses:FunctionToolCall && item.name == GET_RESULTS_TOOL {
             toolArguments = item.arguments;
             break;
         }

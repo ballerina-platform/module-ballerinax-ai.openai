@@ -19,7 +19,8 @@ import ballerina/ai.observe;
 import ballerina/http;
 import ballerina/log;
 import ballerina/jballerina.java;
-import ballerinax/openai as chat;
+import ballerinax/openai.chat as chat;
+import ballerinax/openai.responses as responses;
 
 const DEFAULT_OPENAI_SERVICE_URL = "https://api.openai.com/v1";
 const DEFAULT_MAX_TOKEN_COUNT = 512;
@@ -30,12 +31,12 @@ const DEFAULT_TEMPERATURE = 0.7d;
 public isolated distinct client class ModelProvider {
     *ai:ModelProvider;
     private final chat:Client? llmClient;
-    private final chat:Client? responsesClient;
+    private final responses:Client? responsesClient;
     private final OPEN_AI_MODEL_NAMES modelType;
     private final ApiType apiType;
     private final decimal? temperature;
     private final int maxTokens;
-    private final (chat:Reasoning & readonly)? reasoning;
+    private final (responses:Reasoning & readonly)? reasoning;
 
     # Initializes the OpenAI model with the given connection configuration and model configuration.
     #
@@ -52,7 +53,7 @@ public isolated distinct client class ModelProvider {
             @display {label: "Service URL"} string serviceUrl = DEFAULT_OPENAI_SERVICE_URL,
             @display {label: "Maximum Tokens"} int maxTokens = DEFAULT_MAX_TOKEN_COUNT,
             @display {label: "Temperature"} decimal? temperature = DEFAULT_TEMPERATURE,
-            @display {label: "Reasoning Effort"} chat:Reasoning? reasoningEffort = (),
+            @display {label: "Reasoning Effort"} responses:Reasoning? reasoningEffort = (),
             @display {label: "Connection Configuration"} *ConnectionConfig connectionConfig) returns ai:Error? {
         self.modelType = modelType;
         self.temperature = temperature;
@@ -116,7 +117,7 @@ public isolated distinct client class ModelProvider {
                 proxy: connectionConfig.proxy,
                 validation: connectionConfig.validation
             };
-            chat:Client|error responsesApiClient = new (openAiConfig, serviceUrl);
+            responses:Client|error responsesApiClient = new (openAiConfig, serviceUrl);
             if responsesApiClient is error {
                 return error ai:Error("Failed to initialize chat:Client for Responses API", responsesApiClient);
             }
@@ -229,7 +230,7 @@ public isolated distinct client class ModelProvider {
             span.close(message);
             return message;
         }
-        log:printInfo("Converted Chat Completions response to ChatAssistantMessage", message = message.toJsonString());
+        
         span.addOutputMessages(message);
         span.addOutputType(observe:TEXT);
         span.close();
@@ -241,7 +242,7 @@ public isolated distinct client class ModelProvider {
     private isolated function chatViaResponses(ai:ChatMessage[]|ai:ChatUserMessage messages,
             (ai:ChatCompletionFunctions|ai:InbuiltModelTool)[] tools, string? stop) returns ai:ChatAssistantMessage|ai:Error {
         log:printInfo("Responses API has been called");
-        chat:Client responsesClient = <chat:Client>self.responsesClient;
+        responses:Client responsesClient = <responses:Client>self.responsesClient;
         observe:ChatSpan span = observe:createChatSpan(self.modelType);
         span.addProvider("openai");
         if stop is string {
@@ -268,9 +269,9 @@ public isolated distinct client class ModelProvider {
         }
 
         // Convert messages to Responses API input format
-        [chat:InputParam, string?] [inputItems, instructions] = check convertToResponsesInput(messages, functionToolDefs, self.modelType);
+        [responses:InputParam, string?] [inputItems, instructions] = check convertToResponsesInput(messages, functionToolDefs, self.modelType);
 
-        chat:CreateResponse request = {
+        responses:CreateResponse request = {
             model: self.modelType,
             input: inputItems,
             max_output_tokens: self.maxTokens,
@@ -287,17 +288,17 @@ public isolated distinct client class ModelProvider {
             log:printWarn("The 'stop' parameter is not supported by the Responses API and will be ignored.",
                 model = self.modelType);
         }
-        chat:Tool[] allTools = [];
+        responses:Tool[] allTools = [];
         if functionToolDefs.length() > 0 {
-            chat:FunctionTool[] functionTools = convertToResponsesTools(functionToolDefs);
-            foreach chat:FunctionTool ft in functionTools {
+            responses:FunctionTool[] functionTools = convertToResponsesTools(functionToolDefs);
+            foreach responses:FunctionTool ft in functionTools {
                 allTools.push(ft);
             }
         }
         // Convert inbuilt tools (web_search, code_interpreter, etc.) to their API format
         if inbuiltToolDefs.length() > 0 {
-            chat:Tool[] convertedInbuiltTools = check convertInbuiltToolsToResponsesFormat(inbuiltToolDefs);
-            foreach chat:Tool t in convertedInbuiltTools {
+            responses:Tool[] convertedInbuiltTools = check convertInbuiltToolsToResponsesFormat(inbuiltToolDefs);
+            foreach responses:Tool t in convertedInbuiltTools {
                 allTools.push(t);
             }
         }
@@ -315,12 +316,12 @@ public isolated distinct client class ModelProvider {
         if allTools.length() > 0 {
             request.tools = allTools;
         }
-        if self.reasoning is chat:Reasoning {
+        if self.reasoning is responses:Reasoning {
             request.reasoning = self.reasoning;
         }
 
         // POST to /responses
-        chat:Response|error response = responsesClient->/responses.post(request);
+        responses:Response|error response = responsesClient->/responses.post(request);
         if response is error {
             ai:Error err = error ai:LlmConnectionError("Error while connecting to the model", response);
             span.close(err);
@@ -364,8 +365,8 @@ public isolated distinct client class ModelProvider {
 
         // Record observability
         span.addResponseId(response.id);
-        chat:ResponseUsage? usage = response.usage;
-        if usage is chat:ResponseUsage {
+        responses:ResponseUsage? usage = response.usage;
+        if usage is responses:ResponseUsage {
             span.addInputTokenCount(usage.input_tokens);
             span.addOutputTokenCount(usage.output_tokens);
         }
@@ -377,7 +378,7 @@ public isolated distinct client class ModelProvider {
             span.close(message);
             return message;
         }
-        log:printInfo("Converted Responses API response to ChatAssistantMessage", message = message.toJsonString());
+
         span.addOutputMessages(message);
         span.addOutputType(observe:TEXT);
         span.close();

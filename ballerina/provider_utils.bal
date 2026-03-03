@@ -18,7 +18,7 @@ import ballerina/ai;
 import ballerina/ai.observe;
 import ballerina/constraint;
 import ballerina/lang.array;
-import ballerinax/openai as chat;
+import ballerinax/openai.chat as chat;
 import ballerina/log;
 
 type ResponseSchema record {|

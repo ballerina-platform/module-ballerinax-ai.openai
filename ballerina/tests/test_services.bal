@@ -16,7 +16,8 @@
 
 import ballerina/http;
 import ballerina/test;
-import ballerinax/openai as chat;
+import ballerinax/openai.chat as chat;
+import ballerinax/openai.responses as responses;
 
 service /llm on new http:Listener(8080) {
     // Chat Completions API mock endpoint
@@ -54,7 +55,7 @@ service /llm on new http:Listener(8080) {
     }
 
     // Responses API mock endpoint
-    resource function post openai/responses(@http:Payload json payload) returns json|error {
+    resource function post openai/responses(@http:Payload json payload) returns responses:Response|error {
         // Extract the initial text content from the input items
         json[] inputItems = check (check payload.input).ensureType();
         if inputItems.length() == 0 {
@@ -117,7 +118,7 @@ service /llm on new http:Listener(8080) {
 }
 
 // Builds a Responses API response with a function_call output item (for generate() tests)
-isolated function getTestResponsesApiResponseWithToolCall(string content) returns json {
+isolated function getTestResponsesApiResponseWithToolCall(string content) returns responses:Response {
     return {
         id: "resp_test_id",
         'object: "response",
@@ -144,12 +145,15 @@ isolated function getTestResponsesApiResponseWithToolCall(string content) return
             total_tokens: 150,
             input_tokens_details: {cached_tokens: 0},
             output_tokens_details: {reasoning_tokens: 0}
-        }
+        },
+        tool_choice: "auto",
+        metadata: (),
+        tools: []
     };
 }
 
 // Builds a Responses API response with a text message output item (for chat() tests)
-isolated function getTestResponsesApiChatResponse(string content) returns json {
+isolated function getTestResponsesApiChatResponse(string content) returns responses:Response {
     string responseText = "This is a mock response for: " + content;
     return {
         id: "resp_chat_test_id",
@@ -183,12 +187,15 @@ isolated function getTestResponsesApiChatResponse(string content) returns json {
             total_tokens: 80,
             input_tokens_details: {cached_tokens: 0},
             output_tokens_details: {reasoning_tokens: 0}
-        }
+        },
+        metadata: (), 
+        tool_choice: "auto", 
+        tools: []
     };
 }
 
 // Builds a Responses API response with function_call output items (for chat() with tools tests)
-isolated function getTestResponsesApiToolCallChatResponse() returns json {
+isolated function getTestResponsesApiToolCallChatResponse() returns responses:Response {
     return {
         id: "resp_tool_chat_test_id",
         'object: "response",
@@ -215,6 +222,9 @@ isolated function getTestResponsesApiToolCallChatResponse() returns json {
             total_tokens: 100,
             input_tokens_details: {cached_tokens: 0},
             output_tokens_details: {reasoning_tokens: 0}
-        }
+        },
+        tool_choice: "auto",
+        metadata: (),
+        tools: []
     };
 }

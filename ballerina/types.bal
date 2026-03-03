@@ -16,7 +16,7 @@
 
 import ballerina/http;
 import ballerina/ai;
-import ballerinax/openai as chat;
+import ballerinax/openai.responses as responses;
 
 # Configurations for controlling the behaviours when communicating with a remote HTTP endpoint.
 @display {label: "Connection Configuration"}
@@ -160,7 +160,7 @@ type CodeInterpreterTool record {|
     *ai:InbuiltModelTool;
     "code_interpreter" name;
     record {|
-        string|chat:AutoCodeInterpreterToolParam container;
+        string|responses:AutoCodeInterpreterToolParam container;
     |} configurations;
 |};
 
@@ -169,7 +169,7 @@ type WebsearchTool record {|
     "web_search"|"web_search_2025_08_26" name;
     record {|
         anydata filters?;
-        chat:WebSearchApproximateLocation user_location?;
+        responses:WebSearchApproximateLocation user_location?;
         # High level guidance for the amount of context window space to use for the search. One of `low`, `medium`, or `high`. `medium` is the default.
         "low"|"medium"|"high" search_context_size = "medium";
     |} configurations;

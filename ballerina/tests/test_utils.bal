@@ -14,7 +14,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import ballerinax/openai as chat;
+import ballerinax/openai.chat as chat;
 
 isolated function getExpectedParameterSchema(string message) returns map<json> {
     if message.startsWith("Evaluate this") {
