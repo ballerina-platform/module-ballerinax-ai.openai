@@ -268,6 +268,20 @@ public isolated distinct client class ModelProvider {
             }
         }
 
+        // Validate that only supported inbuilt tools are used
+        string[] unsupportedInbuiltTools = [];
+        foreach ai:InbuiltModelTool tool in inbuiltToolDefs {
+            if tool.name != "code_interpreter" && tool.name != "web_search"
+                    && tool.name != "web_search_2025_08_26" && tool.name != "file_search" {
+                unsupportedInbuiltTools.push(tool.name);
+            }
+        }
+        if unsupportedInbuiltTools.length() > 0 {
+            return error ai:Error(
+                string `Inbuilt tools [${string:'join(", ", ...unsupportedInbuiltTools)}] are not currently supported. ` +
+                "Only 'web_search', 'code_interpreter', and 'file_search' tools are supported.");
+        }
+
         // Convert messages to Responses API input format
         [responses:InputParam, string?] [inputItems, instructions] = check convertToResponsesInput(messages, functionToolDefs, self.modelType);
 

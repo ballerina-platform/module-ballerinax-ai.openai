@@ -175,13 +175,6 @@ type WebsearchTool record {|
     |} configurations;
 |};
 
-type LocalShellTool record {|
-    *ai:InbuiltModelTool;
-    # The type of the local shell tool. Always `local_shell`.
-    "local_shell" name;
-    never configurations;
-|};
-
 type FileSearchTool record {|
     *ai:InbuiltModelTool;
     "file_search" name;
@@ -193,53 +186,4 @@ type FileSearchTool record {|
     |} configurations;
 |};
 
-type ComputerUsePreviewTool record {|
-    *ai:InbuiltModelTool;
-    # The type of the computer use tool. Always `computer_use_preview`.
-    "computer_use_preview" name;
-    record {|
-        "windows"|"mac"|"linux"|"ubuntu"|"browser" environment;
-        int display_width;
-        int display_height;
-    |} configurations;
-|};
-
-type McpTool record {|
-    *ai:InbuiltModelTool;
-    "mcp" name;
-    record {|
-        string server_label;
-        string server_url?;
-        string server_description?;
-        string authorization?;
-        anydata headers?;
-        anydata allowed_tools?;
-        anydata require_approval?;
-    |} configurations;
-|};
-
-type ImageGenTool record {|
-    *ai:InbuiltModelTool;
-    "image_generation" name;
-    record {|
-        string model?;
-        "low"|"medium"|"high"|"auto" quality?;
-        "1024x1024"|"1024x1536"|"1536x1024"|"auto" size?;
-        "png"|"webp"|"jpeg" output_format?;
-        int output_compression?;
-        "auto"|"low" moderation?;
-        "transparent"|"opaque"|"auto" background?;
-        anydata input_image_mask?;
-        int partial_images?;
-    |} configurations;
-|};
-
-type FunctionShellTool record {|
-    *ai:InbuiltModelTool;
-    "shell" name;
-    record {|
-        anydata environment?;
-    |} configurations;
-|};
-
-type OpenAIInbuiltModelTool CodeInterpreterTool|WebsearchTool|LocalShellTool|FileSearchTool|ComputerUsePreviewTool|McpTool|ImageGenTool|FunctionShellTool;
+type OpenAIInbuiltModelTool CodeInterpreterTool|WebsearchTool|FileSearchTool;
