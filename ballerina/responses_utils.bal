@@ -109,16 +109,16 @@ isolated function convertToResponsesTools(ai:ChatCompletionFunctions[] tools) re
         };
 }
 
-# Converts ai:InbuiltModelTool array to Responses API tool format.
+# Converts ai:BuiltInTool array to Responses API tool format.
 #
-# Each inbuilt tool's `name` maps to the `type` field in the API, and its
+# Each built-in tool's `name` maps to the `type` field in the API, and its
 # `configurations` are spread as top-level properties of the tool object.
 #
-# + tools - The inbuilt tool definitions to convert
+# + tools - The built-in tool definitions to convert
 # + return - Array of chat:Tool objects or an error
-isolated function convertInbuiltToolsToResponsesFormat(ai:InbuiltModelTool[] tools) returns responses:Tool[]|ai:Error {
+isolated function convertBuiltInToolsToResponsesFormat(ai:BuiltInTool[] tools) returns responses:Tool[]|ai:Error {
     responses:Tool[] result = [];
-    foreach ai:InbuiltModelTool tool in tools {
+    foreach ai:BuiltInTool tool in tools {
         map<anydata> toolMap = {'type: tool.name};
         map<anydata>? configs = tool.configurations;
         if configs is map<anydata> {
@@ -129,7 +129,7 @@ isolated function convertInbuiltToolsToResponsesFormat(ai:InbuiltModelTool[] too
         }
         responses:Tool|error converted = toolMap.cloneWithType();
         if converted is error {
-            return error ai:Error("Failed to convert inbuilt tool '" + tool.name + "' to Responses API format." + "Found " + toolMap.toJsonString() , converted);
+            return error ai:Error("Failed to convert built-in tool '" + tool.name + "' to Responses API format." + "Found " + toolMap.toJsonString() , converted);
         }
         result.push(converted);
     }
@@ -147,10 +147,11 @@ isolated function convertResponsesOutputToAssistantMessage(responses:Response re
     ai:ChatAssistantMessage result = {role: ai:ASSISTANT};
     ai:FunctionCall[] functionCalls = [];
 
-    anydata outputText = response?.output_text;
-    if outputText is string && outputText.length() > 0 {
-        result.content = outputText;
-    }
+    // Commented out the old output_text extraction logic since we're now scanning output items for content parts
+    // anydata outputText = response?.output_text;
+    // if outputText is string && outputText.length() > 0 {
+    //     result.content = outputText;
+    // }
 
     // Scan output items for message and function_call items using type-safe pattern matching
     foreach responses:OutputItem item in response.output {
@@ -200,16 +201,16 @@ isolated function convertResponsesOutputToAssistantMessage(responses:Response re
 #
 # + parts - The content parts in Chat Completions format
 # + return - The content parts in Responses API format
-isolated function convertContentPartsForResponses(DocumentContentPart[] parts) returns json[] {
-    json[] result = [];
+isolated function convertContentPartsForResponses(DocumentContentPart[] parts) returns responses:InputContent[] {
+    responses:InputContent[] result = [];
     foreach DocumentContentPart part in parts {
         if part is TextContentPart {
-            result.push({
+            result.push(<responses:InputTextContent>{
                 'type: "input_text",
                 text: part.text
             });
         } else if part is ImageContentPart {
-            result.push({
+            result.push(<responses:InputImageContent>{
                 'type: "input_image",
                 image_url: part.image_url.url
             });
@@ -261,29 +262,22 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
     };
 
     // Convert content parts to Responses API format
-    json[] responsesContent = convertContentPartsForResponses(content);
+    responses:InputContent[] responsesContent = convertContentPartsForResponses(content);
 
     // Build input - a single user message with content parts
-    json inputMessage = {
-        role: ai:USER,
-        content: responsesContent
-    };
+    responses:InputParam inputMessage = [
+        <responses:Item>{
+            role: ai:USER,
+            content: responsesContent
+        }
+    ];
 
-    responses:InputParam|error inputParam = [inputMessage].cloneWithType();
-    if inputParam is error {
-        ai:Error err = error("Failed to convert input items to InputParam: " + inputParam.message());
-        span.close(err);
-        return err;
-    }
     responses:CreateResponse request = {
         model: modelType,
-        input: inputParam,
+        input: inputMessage,
         tools: [getResultsTool],
         tool_choice: toolChoice
     };
-    if reasoningEffort is string {
-        request.reasoning = <responses:Reasoning>{effort: <responses:ReasoningEffort>reasoningEffort};
-    }
 
     span.addInputMessages([inputMessage].toJson());
 
@@ -293,7 +287,6 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
         span.close(err);
         return err;
     }
-    log:printInfo("Raw Responses API response received (generate)", response = response.toJsonString());
 
     // Record observability
     span.addResponseId(response.id);
@@ -324,11 +317,11 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
         span.close(err);
         return err;
     }
-    log:printInfo("Parsed tool call arguments (generate/Responses)", arguments = arguments.toJsonString());
 
     anydata|error res = parseResponseAsType(arguments.toJsonString(), expectedResponseTypedesc,
             responseSchema.isOriginallyJsonObject);
     if res is error {
+        log:printError("Error occured to convert Types", res);
         ai:Error err = error ai:LlmInvalidGenerationError(string `Invalid value returned from the LLM Client, expected: '${
             expectedResponseTypedesc.toBalString()}', found '${res.toBalString()}'`);
         span.close(err);
@@ -337,12 +330,12 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
 
     anydata|error result = res.ensureType(expectedResponseTypedesc);
     if result is error {
+        log:printError("Error occured to convert Types", result);
         ai:Error err = error ai:LlmInvalidGenerationError(string `Invalid value returned from the LLM Client, expected: '${
             expectedResponseTypedesc.toBalString()}', found '${(typeof response).toBalString()}'`);
         span.close(err);
         return err;
     }
-    log:printInfo("Converted response to expected Ballerina type (generate/Responses)", result = result.toJsonString());
 
     span.addOutputMessages(result.toJson());
     span.addOutputType(observe:JSON);

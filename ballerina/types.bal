@@ -156,34 +156,58 @@ type LlmChatResponse record {|
     string content;
 |};
 
-type CodeInterpreterTool record {|
-    *ai:InbuiltModelTool;
+# Code interpreter tool for OpenAI models.
+# Allows the model to execute code in a sandboxed environment during a conversation.
+# Ref: https://platform.openai.com/docs/guides/tools/code-interpreter
+public type CodeInterpreterTool record {|
+    *ai:BuiltInTool;
+    # Tool identifier. Always `"code_interpreter"`.
     "code_interpreter" name;
+    # Code interpreter configurations
     record {|
+        # The container to run the code in. Either a string container ID or an auto-provisioned container configuration.
         string|responses:AutoCodeInterpreterToolParam container;
     |} configurations;
 |};
 
-type WebsearchTool record {|
-    *ai:InbuiltModelTool;
+# Web search tool for OpenAI models.
+# Enables the model to search the web for real-time information during a conversation.
+# Ref: https://platform.openai.com/docs/guides/tools/web-search
+public type WebsearchTool record {|
+    *ai:BuiltInTool;
+    # Tool identifier. Use `"web_search"` (default) or `"web_search_2025_08_26"` for an older version.
     "web_search"|"web_search_2025_08_26" name;
+    # Web search configurations
     record {|
-        anydata filters?;
+        # Domain filters for narrowing search results
+        responses:WebSearchTool_filters? filters?;
+        # Approximate user location for localizing search results
         responses:WebSearchApproximateLocation user_location?;
-        # High level guidance for the amount of context window space to use for the search. One of `low`, `medium`, or `high`. `medium` is the default.
+        # High level guidance for the amount of context window space to use for the search.
+        # One of `low`, `medium`, or `high`. Defaults to `medium`.
         "low"|"medium"|"high" search_context_size = "medium";
     |} configurations;
 |};
 
-type FileSearchTool record {|
-    *ai:InbuiltModelTool;
+# File search tool for OpenAI models.
+# Enables the model to search through uploaded files in vector stores.
+# Ref: https://platform.openai.com/docs/guides/tools/file-search
+public type FileSearchTool record {|
+    *ai:BuiltInTool;
+    # Tool identifier. Always `"file_search"`.
     "file_search" name;
+    # File search configurations
     record {|
+        # The IDs of the vector stores to search
         string[] vector_store_ids;
+        # Maximum number of results to return (1-50)
         int max_num_results?;
-        anydata ranking_options?;
-        anydata filters?;
+        # Ranking options for fine-tuning search result ordering
+        responses:RankingOptions ranking_options?;
+        # Metadata filters for narrowing search results
+        responses:Filters filters?;
     |} configurations;
 |};
 
-type OpenAIInbuiltModelTool CodeInterpreterTool|WebsearchTool|FileSearchTool;
+# Union type representing all built-in tools supported by the OpenAI provider.
+type OpenAIBuiltInTool CodeInterpreterTool|WebsearchTool|FileSearchTool;

@@ -245,7 +245,6 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
         span.close(err);
         return err;
     }
-    log:printInfo("Raw Chat Completions response received (generate)", response = response.toJsonString());
 
     string? responseId = response.id;
     if responseId is string {
@@ -294,7 +293,6 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
         span.close(err);
         return err;
     }
-    log:printInfo("Parsed tool call arguments (generate)", arguments = arguments.toJsonString());
 
     anydata|error res = parseResponseAsType(arguments.toJsonString(), expectedResponseTypedesc,
             responseSchema.isOriginallyJsonObject);
@@ -312,7 +310,6 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
         span.close(err);
         return err;
     }
-    log:printInfo("Converted response to expected Ballerina type (generate/ChatCompletions)", result = result.toJsonString());
 
     span.addOutputMessages(result.toJson());
     span.addOutputType(observe:JSON);

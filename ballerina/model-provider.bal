@@ -132,18 +132,29 @@ public isolated distinct client class ModelProvider {
     # + tools - Tool definitions to be used for the tool call
     # + stop - Stop sequence to stop the completion
     # + return - Function to be called, chat response or an error in-case of failures
-    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages, (ai:ChatCompletionFunctions|ai:InbuiltModelTool)[] tools,
+    isolated remote function chat(ai:ChatMessage[]|ai:ChatUserMessage messages, (ai:ChatCompletionFunctions|ai:BuiltInTool)[] tools,
             string? stop = ()) returns ai:ChatAssistantMessage|ai:Error {
 
         if self.apiType == RESPONSES {
             return self.chatViaResponses(messages, tools, stop);
         }
 
-        if tools !is ai:ChatCompletionFunctions[] {
-            return error ai:Error("Inbuilt tools are not supported for the selected model type " + self.modelType);
+        string[] unsupportedTools = [];
+        ai:ChatCompletionFunctions[] functionTools = [];
+        foreach ai:ChatCompletionFunctions|ai:BuiltInTool tool in tools {
+            if tool is ai:BuiltInTool {
+                unsupportedTools.push(tool.name);
+            } else {
+                functionTools.push(tool);
+            }
         }
 
-        return self.chatViaChatCompletions(messages, tools, stop);
+        if unsupportedTools.length() > 0 {
+            return error ai:Error(string `Built-in tools [${string:'join(", ", ...unsupportedTools)}] are not supported `
+                + "for the Chat Completions API. This model does not support the Responses API.");
+        }
+
+        return self.chatViaChatCompletions(messages, functionTools, stop);
     }
 
     # Sends a chat request to the model and generates a value that belongs to the type
@@ -178,7 +189,7 @@ public isolated distinct client class ModelProvider {
 
         chat:CreateChatCompletionRequest request = {
             max_completion_tokens: self.maxTokens,
-            temperature: self.temperature,
+            temperature: supportsTemperature(self.modelType) ? self.temperature : (),
             stop,
             model: self.modelType,
             messages: check self.prepareCompletionRequestMessages(messages, tools)
@@ -192,6 +203,7 @@ public isolated distinct client class ModelProvider {
         chat:CreateChatCompletionResponse|error response = llmClient->/chat/completions.post(request);
         if response is error {
             ai:Error err = error ai:LlmConnectionError("Error while connecting to the model", response);
+            log:printError("Error response received from Responses API", err);
             span.close(err);
             return err;
         }
@@ -240,7 +252,7 @@ public isolated distinct client class ModelProvider {
     // ===== Responses API path =====
 
     private isolated function chatViaResponses(ai:ChatMessage[]|ai:ChatUserMessage messages,
-            (ai:ChatCompletionFunctions|ai:InbuiltModelTool)[] tools, string? stop) returns ai:ChatAssistantMessage|ai:Error {
+            (ai:ChatCompletionFunctions|ai:BuiltInTool)[] tools, string? stop) returns ai:ChatAssistantMessage|ai:Error {
         log:printInfo("Responses API has been called");
         responses:Client responsesClient = <responses:Client>self.responsesClient;
         observe:ChatSpan span = observe:createChatSpan(self.modelType);
@@ -257,28 +269,27 @@ public isolated distinct client class ModelProvider {
             span.addInputMessages(inputMessage);
         }
 
-        // Separate function tools and inbuilt tools
+        // Separate function tools and built-in tools
         ai:ChatCompletionFunctions[] functionToolDefs = [];
-        ai:InbuiltModelTool[] inbuiltToolDefs = [];
+        ai:BuiltInTool[] builtInToolDefs = [];
         foreach var tool in tools {
             if tool is ai:ChatCompletionFunctions {
                 functionToolDefs.push(tool);
             } else {
-                inbuiltToolDefs.push(tool);
+                builtInToolDefs.push(tool);
             }
         }
 
-        // Validate that only supported inbuilt tools are used
-        string[] unsupportedInbuiltTools = [];
-        foreach ai:InbuiltModelTool tool in inbuiltToolDefs {
-            if tool.name != "code_interpreter" && tool.name != "web_search"
-                    && tool.name != "web_search_2025_08_26" && tool.name != "file_search" {
-                unsupportedInbuiltTools.push(tool.name);
+        // Validate that only supported built-in tools are used
+        string[] unsupportedBuiltInTools = [];
+        foreach ai:BuiltInTool tool in builtInToolDefs {
+            if tool !is CodeInterpreterTool && tool !is WebsearchTool && tool !is FileSearchTool {
+                unsupportedBuiltInTools.push(tool.name);
             }
         }
-        if unsupportedInbuiltTools.length() > 0 {
+        if unsupportedBuiltInTools.length() > 0 {
             return error ai:Error(
-                string `Inbuilt tools [${string:'join(", ", ...unsupportedInbuiltTools)}] are not currently supported. ` +
+                string `Built-in tools [${string:'join(", ", ...unsupportedBuiltInTools)}] are not currently supported. ` +
                 "Only 'web_search', 'code_interpreter', and 'file_search' tools are supported.");
         }
 
@@ -309,16 +320,16 @@ public isolated distinct client class ModelProvider {
                 allTools.push(ft);
             }
         }
-        // Convert inbuilt tools (web_search, code_interpreter, etc.) to their API format
-        if inbuiltToolDefs.length() > 0 {
-            responses:Tool[] convertedInbuiltTools = check convertInbuiltToolsToResponsesFormat(inbuiltToolDefs);
-            foreach responses:Tool t in convertedInbuiltTools {
+        // Convert built-in tools (web_search, code_interpreter, etc.) to their API format
+        if builtInToolDefs.length() > 0 {
+            responses:Tool[] convertedBuiltInTools = check convertBuiltInToolsToResponsesFormat(builtInToolDefs);
+            foreach responses:Tool t in convertedBuiltInTools {
                 allTools.push(t);
             }
         }
         if tools.length() > 0 {
             json[] toolsArr = [];
-            foreach ai:ChatCompletionFunctions|ai:InbuiltModelTool tool in tools {
+            foreach ai:ChatCompletionFunctions|ai:BuiltInTool tool in tools {
                 if tool is ai:ChatCompletionFunctions {
                     toolsArr.push(tool);
                 } else {
@@ -330,7 +341,7 @@ public isolated distinct client class ModelProvider {
         if allTools.length() > 0 {
             request.tools = allTools;
         }
-        if self.reasoning is responses:Reasoning {
+        if self.reasoning is responses:Reasoning && supportsReasoning(self.modelType) {
             request.reasoning = self.reasoning;
         }
 
@@ -338,6 +349,7 @@ public isolated distinct client class ModelProvider {
         responses:Response|error response = responsesClient->/responses.post(request);
         if response is error {
             ai:Error err = error ai:LlmConnectionError("Error while connecting to the model", response);
+            log:printError("Error response received from Responses API", err);
             span.close(err);
             return err;
         }
@@ -604,8 +616,40 @@ isolated function convertFunctionsToCompletionTools(ai:ChatCompletionFunctions[]
 # + return - `true` if the model accepts `temperature`; `false` otherwise
 isolated function supportsTemperature(OPEN_AI_MODEL_NAMES modelType) returns boolean {
     string model = modelType;
-    return !(model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4")
-        || model.startsWith("gpt-5"));
+    if model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4") {
+        return false;
+    }
+    if model.startsWith("codex-") {
+        return false;
+    }
+    if model.startsWith("gpt-5") {
+        return model.includes("-chat");
+    }
+    return true;
+}
+
+# Determines whether the given model supports the `reasoning` (reasoning_effort) parameter.
+#
+# Reasoning models (o1, o1-pro, o3, o3-mini, o3-pro, o4-mini), codex-mini, and all GPT-5 series
+# support reasoning_effort. o1-mini and older GPT models do not.
+#
+# + modelType - The model name
+# + return - `true` if the model accepts `reasoning`; `false` otherwise
+isolated function supportsReasoning(OPEN_AI_MODEL_NAMES modelType) returns boolean {
+    string model = modelType;
+    if model == "o1-mini" {
+        return false;
+    }
+    if model.startsWith("o1") || model.startsWith("o3") || model.startsWith("o4") {
+        return true;
+    }
+    if model.startsWith("gpt-5") {
+        return true;
+    }
+    if model.startsWith("codex-") {
+        return true;
+    }
+    return false;
 }
 
 # Determines which OpenAI API to use based on the model type.

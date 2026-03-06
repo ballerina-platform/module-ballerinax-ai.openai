@@ -35,3 +35,9 @@ org="ballerina"
 name="ai"
 version="1.10.0"
 repository="local"
+
+[[dependency]]
+org="ballerina"
+name="data.jsondata"
+version="1.1.4"
+repository="local"
