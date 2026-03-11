@@ -93,7 +93,7 @@ dependencies = [
 [[package]]
 org = "ballerina"
 name = "data.xmldata"
-version = "1.6.0"
+version = "1.6.1"
 dependencies = [
 	{org = "ballerina", name = "jballerina.java"},
 	{org = "ballerina", name = "lang.object"}
@@ -432,7 +432,6 @@ org = "ballerinax"
 name = "openai.chat"
 version = "5.0.0"
 dependencies = [
-	{org = "ballerina", name = "data.jsondata"},
 	{org = "ballerina", name = "http"},
 	{org = "ballerina", name = "log"},
 	{org = "ballerina", name = "os"},

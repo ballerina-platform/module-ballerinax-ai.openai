@@ -188,26 +188,3 @@ public type WebsearchTool record {|
         "low"|"medium"|"high" search_context_size = "medium";
     |} configurations;
 |};
-
-# File search tool for OpenAI models.
-# Enables the model to search through uploaded files in vector stores.
-# Ref: https://platform.openai.com/docs/guides/tools/file-search
-public type FileSearchTool record {|
-    *ai:BuiltInTool;
-    # Tool identifier. Always `"file_search"`.
-    "file_search" name;
-    # File search configurations
-    record {|
-        # The IDs of the vector stores to search
-        string[] vector_store_ids;
-        # Maximum number of results to return (1-50)
-        int max_num_results?;
-        # Ranking options for fine-tuning search result ordering
-        responses:RankingOptions ranking_options?;
-        # Metadata filters for narrowing search results
-        responses:Filters filters?;
-    |} configurations;
-|};
-
-# Union type representing all built-in tools supported by the OpenAI provider.
-type OpenAIBuiltInTool CodeInterpreterTool|WebsearchTool|FileSearchTool;

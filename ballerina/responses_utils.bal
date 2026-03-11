@@ -129,7 +129,7 @@ isolated function convertBuiltInToolsToResponsesFormat(ai:BuiltInTool[] tools) r
         }
         responses:Tool|error converted = toolMap.cloneWithType();
         if converted is error {
-            return error ai:Error("Failed to convert built-in tool '" + tool.name + "' to Responses API format." + "Found " + toolMap.toJsonString() , converted);
+            return error ai:Error("Failed to convert built-in tool '" + tool.name + "' to Responses API format. " + "Found " + toolMap.toJsonString(), converted);
         }
         result.push(converted);
     }
@@ -146,12 +146,6 @@ isolated function convertResponsesOutputToAssistantMessage(responses:Response re
         returns ai:ChatAssistantMessage|ai:Error {
     ai:ChatAssistantMessage result = {role: ai:ASSISTANT};
     ai:FunctionCall[] functionCalls = [];
-
-    // Commented out the old output_text extraction logic since we're now scanning output items for content parts
-    // anydata outputText = response?.output_text;
-    // if outputText is string && outputText.length() > 0 {
-    //     result.content = outputText;
-    // }
 
     // Scan output items for message and function_call items using type-safe pattern matching
     foreach responses:OutputItem item in response.output {
@@ -230,9 +224,8 @@ isolated function convertContentPartsForResponses(DocumentContentPart[] parts) r
 # + expectedResponseTypedesc - The expected response type descriptor
 # + return - The parsed response or an error
 isolated function generateLlmResponseViaResponses(responses:Client responsesClient, OPEN_AI_MODEL_NAMES modelType,
-        ai:Prompt prompt, typedesc<json> expectedResponseTypedesc, string? reasoningEffort = ())
+        ai:Prompt prompt, typedesc<json> expectedResponseTypedesc)
         returns anydata|ai:Error {
-    log:printInfo("Generating LLM response via Responses API for model: " + modelType.toString());
     observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
     span.addProvider("openai");
 
@@ -321,7 +314,7 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
     anydata|error res = parseResponseAsType(arguments.toJsonString(), expectedResponseTypedesc,
             responseSchema.isOriginallyJsonObject);
     if res is error {
-        log:printError("Error occured to convert Types", res);
+        log:printError("Error occurred to convert Types", res);
         ai:Error err = error ai:LlmInvalidGenerationError(string `Invalid value returned from the LLM Client, expected: '${
             expectedResponseTypedesc.toBalString()}', found '${res.toBalString()}'`);
         span.close(err);
@@ -330,7 +323,7 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
 
     anydata|error result = res.ensureType(expectedResponseTypedesc);
     if result is error {
-        log:printError("Error occured to convert Types", result);
+        log:printError("Error occurred to convert Types", result);
         ai:Error err = error ai:LlmInvalidGenerationError(string `Invalid value returned from the LLM Client, expected: '${
             expectedResponseTypedesc.toBalString()}', found '${(typeof response).toBalString()}'`);
         span.close(err);

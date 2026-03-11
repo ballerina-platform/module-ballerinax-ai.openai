@@ -171,7 +171,6 @@ public isolated distinct client class ModelProvider {
 
     private isolated function chatViaChatCompletions(ai:ChatMessage[]|ai:ChatUserMessage messages,
             ai:ChatCompletionFunctions[] tools, string? stop) returns ai:ChatAssistantMessage|ai:Error {
-        log:printInfo("Chat Completion API has been called");
         chat:Client llmClient = <chat:Client>self.llmClient;
         observe:ChatSpan span = observe:createChatSpan(self.modelType);
         span.addProvider("openai");
@@ -203,11 +202,10 @@ public isolated distinct client class ModelProvider {
         chat:CreateChatCompletionResponse|error response = llmClient->/chat/completions.post(request);
         if response is error {
             ai:Error err = error ai:LlmConnectionError("Error while connecting to the model", response);
-            log:printError("Error response received from Responses API", err);
+            log:printError("Error response received from Chat Completion API", err);
             span.close(err);
             return err;
         }
-        log:printInfo("Raw Chat Completions response received", response = response.toJsonString());
 
         record {|
             "stop"|"length"|"tool_calls"|"content_filter"|"function_call" finish_reason; 
@@ -253,7 +251,6 @@ public isolated distinct client class ModelProvider {
 
     private isolated function chatViaResponses(ai:ChatMessage[]|ai:ChatUserMessage messages,
             (ai:ChatCompletionFunctions|ai:BuiltInTool)[] tools, string? stop) returns ai:ChatAssistantMessage|ai:Error {
-        log:printInfo("Responses API has been called");
         responses:Client responsesClient = <responses:Client>self.responsesClient;
         observe:ChatSpan span = observe:createChatSpan(self.modelType);
         span.addProvider("openai");
@@ -283,14 +280,14 @@ public isolated distinct client class ModelProvider {
         // Validate that only supported built-in tools are used
         string[] unsupportedBuiltInTools = [];
         foreach ai:BuiltInTool tool in builtInToolDefs {
-            if tool !is CodeInterpreterTool && tool !is WebsearchTool && tool !is FileSearchTool {
+            if tool !is CodeInterpreterTool && tool !is WebsearchTool {
                 unsupportedBuiltInTools.push(tool.name);
             }
         }
         if unsupportedBuiltInTools.length() > 0 {
             return error ai:Error(
                 string `Built-in tools [${string:'join(", ", ...unsupportedBuiltInTools)}] are not currently supported. ` +
-                "Only 'web_search', 'code_interpreter', and 'file_search' tools are supported.");
+                "Only 'web_search', 'code_interpreter' tools are supported.");
         }
 
         // Convert messages to Responses API input format
@@ -300,7 +297,7 @@ public isolated distinct client class ModelProvider {
             model: self.modelType,
             input: inputItems,
             max_output_tokens: self.maxTokens,
-            store: true
+            store: false
         };
         if supportsTemperature(self.modelType) {
             request.temperature = self.temperature;
@@ -353,7 +350,6 @@ public isolated distinct client class ModelProvider {
             span.close(err);
             return err;
         }
-        log:printInfo("Raw Responses API response received", response = response.toJsonString());
 
         // Handle non-completed statuses
         string? status = response?.status;

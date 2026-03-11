@@ -19,7 +19,6 @@ import ballerina/ai.observe;
 import ballerina/constraint;
 import ballerina/lang.array;
 import ballerinax/openai.chat as chat;
-import ballerina/log;
 
 type ResponseSchema record {|
     map<json> schema;
@@ -211,7 +210,6 @@ isolated function handleParseResponseError(error chatResponseError) returns erro
 
 isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES modelType,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc) returns anydata|ai:Error {
-    log:printInfo("Generating LLM response for Chat Completion API: ");
     observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
     span.addProvider("openai");
 

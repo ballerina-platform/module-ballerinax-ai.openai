@@ -36,13 +36,12 @@ public class Generator {
                                   BObject prompt, BTypedesc expectedResponseTypedesc) {
         BString apiType = (BString) modelProvider.get(StringUtils.fromString("apiType"));
 
-        if ("responses".equals(apiType.getValue())) {
+        if (apiType != null && "responses".equals(apiType.getValue())) {
             return env.getRuntime().callFunction(
                     MODULE, "generateLlmResponseViaResponses", null,
                     modelProvider.get(StringUtils.fromString("responsesClient")),
                     modelProvider.get(StringUtils.fromString("modelType")),
-                    prompt, expectedResponseTypedesc,
-                    modelProvider.get(StringUtils.fromString("reasoning")));
+                    prompt, expectedResponseTypedesc);
         }
 
         // Default: Chat Completions (existing behavior)
