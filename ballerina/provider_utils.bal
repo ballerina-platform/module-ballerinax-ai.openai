@@ -281,8 +281,9 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
 
     chat:ChatCompletionMessageToolCall|chat:ChatCompletionMessageCustomToolCall tool = toolCalls[0];
     if tool is chat:ChatCompletionMessageCustomToolCall {
-        span.close(error("Custom tools are not supported, Found tool call: " + tool.toJsonString()));
-        return error("Custom tools are not supported yet, Found tool call: " + tool.toJsonString());
+        ai:Error err = error("Custom tools are not supported yet, Found tool call: " + tool.toJsonString());
+        span.close(err);
+        return err;
     }
 
     map<json>|error arguments = (<chat:ChatCompletionMessageToolCall>tool).'function.arguments.fromJsonStringWithType();

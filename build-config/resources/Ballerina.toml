@@ -1,6 +1,6 @@
 [package]
 authors = ["Ballerina"]
-distribution = "2201.13.0"
+distribution = "2201.12.0"
 keywords = ["Agent", "Model", "Provider", "Vendor/OpenAI", "Area/AI", "Type/Connector"]
 license = ["Apache-2.0"]
 icon="icon.png"
@@ -27,13 +27,13 @@ repository="local"
 [[dependency]]
 org="ballerinax"
 name="openai.responses"
-version="5.0.0"
+version="1.0.0"
 repository="local"
 
 [[dependency]]
 org="ballerina"
 name="ai"
-version="1.10.0"
+version="1.11.0"
 repository="local"
 
 [[dependency]]

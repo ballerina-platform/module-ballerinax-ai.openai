@@ -70,7 +70,7 @@ service /llm on new http:Listener(8080) {
 
             test:assertEquals(parameters, getExpectedParameterSchema(initialText),
                     string `Test failed for prompt with initial content, ${initialText}`);
-            return getTestServiceResponse(initialText).toJson();
+            return getTestServiceResponse(initialText);
         }
 
         // Chat path: extract user message content
