@@ -25,11 +25,13 @@ type ResponseSchema record {|
     boolean isOriginallyJsonObject = true;
 |};
 
-type DocumentContentPart TextContentPart|ImageContentPart;
+type DocumentContentPart TextContentPart|ImageContentPart|AudioContentPart;
 
 type TextContentPart chat:ChatCompletionRequestMessageContentPartText;
 
 type ImageContentPart chat:ChatCompletionRequestMessageContentPartImage;
+
+type AudioContentPart chat:ChatCompletionRequestMessageContentPartAudio;
 
 const JSON_CONVERSION_ERROR = "FromJsonStringError";
 const CONVERSION_ERROR = "ConversionError";
@@ -149,9 +151,10 @@ isolated function addDocumentContentPart(ai:Document doc, DocumentContentPart[] 
         return addTextContentPart(buildTextContentPart(doc.content), contentParts);
     } else if doc is ai:ImageDocument {
         return contentParts.push(check buildImageContentPart(doc));
+    } else if doc is ai:AudioDocument {
+        return contentParts.push(check buildAudioContentPart(doc));
     }
-
-    return error ai:Error("Only text and image documents are supported.");
+    return error ai:Error("Only text, image and audio documents are supported.");
 }
 
 isolated function addTextContentPart(TextContentPart? contentPart, DocumentContentPart[] contentParts) {
@@ -178,6 +181,22 @@ isolated function buildImageContentPart(ai:ImageDocument doc) returns ImageConte
         url: check buildImageUrl(doc.content, doc.metadata?.mimeType)
     }
 };
+
+isolated function buildAudioContentPart(ai:AudioDocument doc) returns AudioContentPart|ai:Error {
+    "mp3"|"wav"|error format = doc?.metadata["format"].ensureType();
+    if format is error {
+        return error(
+            "Please specify the audio format in the 'format' field of the metadata; supported values are 'mp3' and 'wav'"
+        );
+    }
+
+    ai:Url|byte[] content = doc.content;
+    if content is ai:Url {
+        return error("URL-based audio content is not supported at the moment.");
+    }
+
+    return {'type: "input_audio", input_audio: {format, data: check getBase64EncodedString(content)}};
+}
 
 isolated function buildImageUrl(ai:Url|byte[] content, string? mimeType) returns string|ai:Error {
     if content is ai:Url {
@@ -209,7 +228,7 @@ isolated function handleParseResponseError(error chatResponseError) returns erro
 }
 
 isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES modelType,
-        decimal? temperature, int? maxTokens,
+        decimal? temperature, int maxTokens,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc) returns anydata|ai:Error {
     observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
     span.addProvider("openai");

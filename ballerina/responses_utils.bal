@@ -257,6 +257,15 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
         name: GET_RESULTS_TOOL
     };
 
+    // Audio input is not supported in the Responses API
+    foreach DocumentContentPart part in content {
+        if part is AudioContentPart {
+            ai:Error err = error("Audio input is not supported in the Responses API.");
+            span.close(err);
+            return err;
+        }
+    }
+
     // Convert content parts to Responses API format
     responses:InputContent[] responsesContent = convertContentPartsForResponses(content);
 
