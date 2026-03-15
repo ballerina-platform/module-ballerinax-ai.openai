@@ -15,6 +15,8 @@
 // under the License.
 
 import ballerina/http;
+import ballerina/ai;
+import ballerinax/openai.responses as responses;
 
 # Configurations for controlling the behaviours when communicating with a remote HTTP endpoint.
 @display {label: "Connection Configuration"}
@@ -77,6 +79,12 @@ public type ConnectionConfig record {|
     boolean validation = true;
 |};
 
+# Defines which OpenAI API endpoint to use for model interactions (internal).
+enum ApiType {
+    CHAT_COMPLETIONS = "chat_completions",
+    RESPONSES = "responses"
+}
+
 # Model types for OpenAI
 @display {label: "OpenAI Model Names"}
 public enum OPEN_AI_MODEL_NAMES {
@@ -96,6 +104,11 @@ public enum OPEN_AI_MODEL_NAMES {
     O1_2024_12_17 = "o1-2024-12-17",
     O1_PRO_2025_03_19 = "o1-pro-2025-03-19",
     O1_PRO = "o1-pro",
+    O1_MINI = "o1-mini",
+    O3 = "o3",
+    O3_MINI = "o3-mini",
+    O3_PRO = "o3-pro",
+    O4_MINI = "o4-mini",
     GPT_3_5_TURBO = "gpt-3.5-turbo",
     GPT_3_5_TURBO_16K = "gpt-3.5-turbo-16k",
     GPT_3_5_TURBO_1106 = "gpt-3.5-turbo-1106",
@@ -106,8 +119,25 @@ public enum OPEN_AI_MODEL_NAMES {
     GPT_4_1_MINI = "gpt-4.1-mini",
     GPT_4_1_NANO = "gpt-4.1-nano",
     GPT_4_1_NANO_2025_04_14 = "gpt-4.1-nano-2025-04-14",
+    GPT_5 = "gpt-5",
+    GPT_5_MINI = "gpt-5-mini",
+    GPT_5_NANO = "gpt-5-nano",
+    GPT_5_PRO = "gpt-5-pro",
+    GPT_5_CHAT = "gpt-5-chat",
+    GPT_5_CODEX = "gpt-5-codex",
+    GPT_5_1 = "gpt-5.1",
+    GPT_5_1_CHAT = "gpt-5.1-chat",
+    GPT_5_1_CODEX = "gpt-5.1-codex",
+    GPT_5_1_CODEX_MINI = "gpt-5.1-codex-mini",
+    GPT_5_2 = "gpt-5.2",
+    GPT_5_2_CHAT = "gpt-5.2-chat",
+    GPT_5_2_CODEX = "gpt-5.2-codex",
+    GPT_5_2_PRO = "gpt-5.2-pro",
+    GPT_5_1_CODEX_MAX = "gpt-5.1-codex-max",
     CHATGPT_4O_LATEST = "chatgpt-4o-latest",
-    GPT_4O_AUDIO_PREVIEW = "gpt-4o-audio-preview"
+    GPT_4O_AUDIO_PREVIEW = "gpt-4o-audio-preview",
+    COMPUTER_USE_PREVIEW = "computer-use-preview",
+    CODEX_MINI_LATEST = "codex-mini-latest"
 }
 
 @display {label: "OpenAI Embedding Model Names"}
@@ -124,4 +154,37 @@ type ToolInfo readonly & record {|
 
 type LlmChatResponse record {|
     string content;
+|};
+
+# Code interpreter tool for OpenAI models.
+# Allows the model to execute code in a sandboxed environment during a conversation.
+# Ref: https://platform.openai.com/docs/guides/tools/code-interpreter
+public type CodeInterpreterTool record {|
+    *ai:BuiltInTool;
+    # Tool identifier. Always `"code_interpreter"`.
+    "code_interpreter" name;
+    # Code interpreter configurations
+    record {|
+        # The container to run the code in. Either a string container ID or an auto-provisioned container configuration.
+        string|responses:AutoCodeInterpreterToolParam container;
+    |} configurations;
+|};
+
+# Web search tool for OpenAI models.
+# Enables the model to search the web for real-time information during a conversation.
+# Ref: https://platform.openai.com/docs/guides/tools/web-search
+public type WebsearchTool record {|
+    *ai:BuiltInTool;
+    # Tool identifier. Use `"web_search"` (default) or `"web_search_2025_08_26"` for an older version.
+    "web_search"|"web_search_2025_08_26" name;
+    # Web search configurations
+    record {|
+        # Domain filters for narrowing search results
+        responses:WebSearchTool_filters? filters?;
+        # Approximate user location for localizing search results
+        responses:WebSearchApproximateLocation user_location?;
+        # High level guidance for the amount of context window space to use for the search.
+        # One of `low`, `medium`, or `high`. Defaults to `medium`.
+        "low"|"medium"|"high" search_context_size = "medium";
+    |} configurations;
 |};

@@ -17,3 +17,27 @@ groupId = "io.ballerina.lib"
 artifactId = "ai.openai-native"
 version = "@toml.version@"
 path = "../native/build/libs/ai.openai-native-@project.version@.jar"
+
+[[dependency]]
+org="ballerinax"
+name="openai.chat"
+version="5.0.0"
+repository="local"
+
+[[dependency]]
+org="ballerinax"
+name="openai.responses"
+version="1.0.0"
+repository="local"
+
+[[dependency]]
+org="ballerina"
+name="ai"
+version="1.11.0"
+repository="local"
+
+[[dependency]]
+org="ballerina"
+name="data.jsondata"
+version="1.1.4"
+repository="local"
