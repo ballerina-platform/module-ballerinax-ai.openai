@@ -41,6 +41,8 @@ public class Generator {
                     MODULE, "generateLlmResponseViaResponses", null,
                     modelProvider.get(StringUtils.fromString("responsesClient")),
                     modelProvider.get(StringUtils.fromString("modelType")),
+                    modelProvider.get(StringUtils.fromString("temperature")),
+                    modelProvider.get(StringUtils.fromString("maxTokens")),
                     prompt, expectedResponseTypedesc);
         }
 
@@ -49,6 +51,8 @@ public class Generator {
                 MODULE, "generateLlmResponse", null,
                 modelProvider.get(StringUtils.fromString("llmClient")),
                 modelProvider.get(StringUtils.fromString("modelType")),
+                    modelProvider.get(StringUtils.fromString("temperature")),
+                    modelProvider.get(StringUtils.fromString("maxTokens")),
                 prompt, expectedResponseTypedesc);
     }
 }

@@ -209,6 +209,7 @@ isolated function handleParseResponseError(error chatResponseError) returns erro
 }
 
 isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES modelType,
+        decimal? temperature, int? maxTokens,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc) returns anydata|ai:Error {
     observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
     span.addProvider("openai");
@@ -234,7 +235,9 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
         ],
         model: modelType,
         tools,
-        tool_choice: getGetResultsToolChoice()
+        tool_choice: getGetResultsToolChoice(),
+        temperature,
+        max_completion_tokens: maxTokens
     };
     span.addInputMessages(request.messages.toJson());
     chat:CreateChatCompletionResponse|error response = llmClient->/chat/completions.post(request);

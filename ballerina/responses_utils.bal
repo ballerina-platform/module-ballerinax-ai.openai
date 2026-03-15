@@ -220,10 +220,13 @@ isolated function convertContentPartsForResponses(DocumentContentPart[] parts) r
 #
 # + responsesClient - The chat client for the Responses API
 # + modelType - The model to use
+# + temperature - The sampling temperature for the response
+# + maxTokens - The maximum number of tokens to generate in the response
 # + prompt - The user prompt
 # + expectedResponseTypedesc - The expected response type descriptor
 # + return - The parsed response or an error
 isolated function generateLlmResponseViaResponses(responses:Client responsesClient, OPEN_AI_MODEL_NAMES modelType,
+        decimal? temperature, int maxTokens,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc)
         returns anydata|ai:Error {
     observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
@@ -269,7 +272,9 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
         model: modelType,
         input: inputMessage,
         tools: [getResultsTool],
-        tool_choice: toolChoice
+        tool_choice: toolChoice,
+        temperature: temperature,
+        max_output_tokens: maxTokens
     };
 
     span.addInputMessages([inputMessage].toJson());
