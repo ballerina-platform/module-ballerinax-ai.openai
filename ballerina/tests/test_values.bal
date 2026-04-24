@@ -369,7 +369,7 @@ const expectedParameterSchemaForRecUnionBasicType =
         }
     };
 
-const expectedParameterSchemaForRecUnionNull = 
+const expectedParameterSchemaForRecUnionNull =
     {
         "type": "object",
         "properties": {
@@ -393,3 +393,38 @@ const expectedParameterSchemaForRecUnionNull =
             }
         }
     };
+
+final readonly & map<anydata>[] expectedContentPartsForTextChunk = [
+    {"type": "text", "text": "Rate this text chunk out of 10. "},
+    {
+        "type": "text",
+        "text": string `Title: ${blog1.title} Content: ${blog1.content}`
+    },
+    {"type": "text", "text": "."}
+];
+
+final readonly & map<anydata>[] expectedContentPartsForTextChunkArray = [
+    {"type": "text", "text": "Rate these text chunks out of 10. "},
+    {
+        "type": "text",
+        "text": string `Title: ${blog1.title} Content: ${blog1.content}`
+    },
+    {
+        "type": "text",
+        "text": string `Title: ${blog1.title} Content: ${blog1.content}`
+    },
+    {"type": "text", "text": ". Thank you!"}
+];
+
+final readonly & map<anydata>[] expectedContentPartsForMixedDocAndChunk = [
+    {"type": "text", "text": "Rate these mixed documents out of 10. "},
+    {
+        "type": "text",
+        "text": string `Title: ${blog1.title} Content: ${blog1.content}`
+    },
+    {
+        "type": "text",
+        "text": string `Title: ${blog1.title} Content: ${blog1.content}`
+    },
+    {"type": "text", "text": ". Thank you!"}
+];

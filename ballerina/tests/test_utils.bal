@@ -93,6 +93,18 @@ isolated function getExpectedParameterSchema(string message) returns map<json> {
         return expectedParameterSchemaStringForRateBlog7;
     }
 
+    if message.startsWith("Rate this text chunk") {
+        return expectedParameterSchemaStringForRateBlog;
+    }
+
+    if message.startsWith("Rate these text chunks") {
+        return expectedParameterSchemaStringForRateBlog6;
+    }
+
+    if message.startsWith("Rate these mixed documents") {
+        return expectedParameterSchemaStringForRateBlog6;
+    }
+
     if message.startsWith("Who is a popular sportsperson") {
         return {
             "type": "object",
@@ -224,6 +236,18 @@ isolated function getTheMockLLMResult(string message) returns string {
 
     if message.startsWith("Please describe the image") {
         return "{\"result\": \"This is a sample image description.\"}";
+    }
+
+    if message.startsWith("Rate this text chunk") {
+        return "{\"result\": 4}";
+    }
+
+    if message.startsWith("Rate these text chunks") {
+        return "{\"result\": [9, 1]}";
+    }
+
+    if message.startsWith("Rate these mixed documents") {
+        return "{\"result\": [9, 1]}";
     }
 
     if message.startsWith("Name a random world class cricketer in India") {
@@ -462,6 +486,18 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
             },
             {"type": "text", "text": "."}
         ];
+    }
+
+    if message.startsWith("Rate this text chunk") {
+        return expectedContentPartsForTextChunk;
+    }
+
+    if message.startsWith("Rate these text chunks") {
+        return expectedContentPartsForTextChunkArray;
+    }
+
+    if message.startsWith("Rate these mixed documents") {
+        return expectedContentPartsForMixedDocAndChunk;
     }
 
     if message.startsWith("Name 10 world class cricketers in India") {

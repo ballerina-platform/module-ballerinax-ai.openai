@@ -24,6 +24,7 @@ const DEFAULT_MAX_TOKEN_COUNT = 512;
 const DEFAULT_TEMPERATURE = 0.7d;
 
 # ModelProvider is a client class that provides an interface for interacting with OpenAI Large Language Models.
+@display { label: "OpenAI Model Provider" }
 public isolated distinct client class ModelProvider {
     *ai:ModelProvider;
     private final chat:Client llmClient;
