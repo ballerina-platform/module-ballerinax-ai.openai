@@ -221,7 +221,7 @@ function testGenerateMethodWithInvalidRecordType() returns ai:Error? {
     string msg = (<error>rating).message();
     test:assertTrue(rating is error);
     test:assertTrue(msg.includes(RUNTIME_SCHEMA_NOT_SUPPORTED_ERROR_MESSAGE),
-        string `expected error message to contain: ${RUNTIME_SCHEMA_NOT_SUPPORTED_ERROR_MESSAGE}, but found ${msg}`);
+            string `expected error message to contain: ${RUNTIME_SCHEMA_NOT_SUPPORTED_ERROR_MESSAGE}, but found ${msg}`);
 }
 
 type ProductNameArray ProductName[];
@@ -233,7 +233,6 @@ function testGenerateMethodWithInvalidRecordArrayType2() returns ai:Error? {
     test:assertTrue(rating is error);
     test:assertTrue((<error>rating).message().includes(ERROR_MESSAGE));
 }
-
 
 type Cricketers record {|
     string name;
@@ -301,7 +300,6 @@ function testGenerateMethodWithArrayUnionBasicType() returns error? {
     test:assertTrue(result is Cricketers3[]);
 }
 
-
 @test:Config
 function testGenerateMethodWithArrayUnionNull() returns error? {
     Cricketers4[]? result = check provider->generate(`Name 10 world class cricketers`);
@@ -316,7 +314,22 @@ function testGenerateMethodWithArrayUnionRecord() returns ai:Error? {
 
 @test:Config
 function testGenerateMethodWithArrayUnionRecord2() returns ai:Error? {
-   Cricketers7[]|Cricketers8|error result = provider->generate(`Name a random world class cricketer`);
+    Cricketers7[]|Cricketers8|error result = provider->generate(`Name a random world class cricketer`);
     test:assertTrue(result is Cricketers8);
 }
 
+@test:Config
+function testGenerateMethodWithTextChunk() returns error? {
+    ai:TextChunk chunk = {
+        content: string `Title: ${blog1.title} Content: ${blog1.content}`
+    };
+    ai:TextChunk[] chunks = [chunk, chunk];
+    int maxScore = 10;
+
+    int rating = check provider->generate(`How would you rate this text chunk content out of ${maxScore}. ${chunk}.`);
+    test:assertEquals(rating, 4);
+
+    ReviewArray result = check provider->generate(`How would you rate these text chunks out of ${maxScore}. ${chunks}. Thank you!`);
+    Review r = check review.fromJsonStringWithType();
+    test:assertEquals(result, [r, r]);
+}
