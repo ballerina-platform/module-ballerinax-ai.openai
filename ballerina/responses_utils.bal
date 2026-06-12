@@ -109,33 +109,6 @@ isolated function convertToResponsesTools(ai:ChatCompletionFunctions[] tools) re
         };
 }
 
-# Converts ai:BuiltInTool array to Responses API tool format.
-#
-# Each built-in tool's `name` maps to the `type` field in the API, and its
-# `configurations` are spread as top-level properties of the tool object.
-#
-# + tools - The built-in tool definitions to convert
-# + return - Array of chat:Tool objects or an error
-isolated function convertBuiltInToolsToResponsesFormat(ai:BuiltInTool[] tools) returns responses:Tool[]|ai:Error {
-    responses:Tool[] result = [];
-    foreach ai:BuiltInTool tool in tools {
-        map<anydata> toolMap = {'type: tool.name};
-        map<anydata>? configs = tool.configurations;
-        if configs is map<anydata> {
-            foreach string key in configs.keys() {
-                anydata value = configs[key];
-                toolMap[key] = value;
-            }
-        }
-        responses:Tool|error converted = toolMap.cloneWithType();
-        if converted is error {
-            return error ai:Error("Failed to convert built-in tool '" + tool.name + "' to Responses API format. " + "Found " + toolMap.toJsonString(), converted);
-        }
-        result.push(converted);
-    }
-    return result;
-}
-
 # Converts a Responses API response to an ai:ChatAssistantMessage.
 #
 # Extracts text content from output_text and function calls from function_call output items.

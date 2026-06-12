@@ -15,8 +15,6 @@
 // under the License.
 
 import ballerina/http;
-import ballerina/ai;
-import ballerinax/openai.responses as responses;
 
 # Configurations for controlling the behaviours when communicating with a remote HTTP endpoint.
 @display {label: "Connection Configuration"}
@@ -154,37 +152,4 @@ type ToolInfo readonly & record {|
 
 type LlmChatResponse record {|
     string content;
-|};
-
-# Code interpreter tool for OpenAI models.
-# Allows the model to execute code in a sandboxed environment during a conversation.
-# Ref: https://platform.openai.com/docs/guides/tools/code-interpreter
-public type CodeInterpreterTool record {|
-    *ai:BuiltInTool;
-    # Tool identifier. Always `"code_interpreter"`.
-    "code_interpreter" name;
-    # Code interpreter configurations
-    record {|
-        # The container to run the code in. Either a string container ID or an auto-provisioned container configuration.
-        string|responses:AutoCodeInterpreterToolParam container;
-    |} configurations;
-|};
-
-# Web search tool for OpenAI models.
-# Enables the model to search the web for real-time information during a conversation.
-# Ref: https://platform.openai.com/docs/guides/tools/web-search
-public type WebsearchTool record {|
-    *ai:BuiltInTool;
-    # Tool identifier. Use `"web_search"` (default) or `"web_search_2025_08_26"` for an older version.
-    "web_search"|"web_search_2025_08_26" name;
-    # Web search configurations
-    record {|
-        # Domain filters for narrowing search results
-        responses:WebSearchTool_filters? filters?;
-        # Approximate user location for localizing search results
-        responses:WebSearchApproximateLocation user_location?;
-        # High level guidance for the amount of context window space to use for the search.
-        # One of `low`, `medium`, or `high`. Defaults to `medium`.
-        "low"|"medium"|"high" search_context_size = "medium";
-    |} configurations;
 |};

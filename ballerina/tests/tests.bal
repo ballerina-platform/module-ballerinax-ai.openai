@@ -445,38 +445,4 @@ function testChatCompletionsChatWithSimpleMessage() returns ai:Error? {
     test:assertEquals(result.content, "This is a mock response for: Hello, how are you?");
 }
 
-// ===== Built-in tool tests =====
-
-@test:Config
-function testResponsesChatWithBuiltInTools() returns ai:Error? {
-    ai:ChatUserMessage userMsg = {role: "user", content: "Search the web for latest news"};
-    WebsearchTool webSearchTool = {
-        name: "web_search",
-        configurations: {search_context_size: "medium"}
-    };
-    ai:ChatAssistantMessage result = check responsesProvider->chat(userMsg, [webSearchTool]);
-    test:assertTrue(result.content is string);
-}
-
-@test:Config
-function testResponsesChatWithUnsupportedBuiltInTool() returns error? {
-    ai:ChatUserMessage userMsg = {role: "user", content: "Use an unsupported tool"};
-    ai:BuiltInTool unsupportedTool = {name: "unsupported_tool"};
-    ai:ChatAssistantMessage|ai:Error result = responsesProvider->chat(userMsg, [unsupportedTool]);
-    test:assertTrue(result is ai:Error);
-    string errorMsg = (<ai:Error>result).message();
-    test:assertTrue(errorMsg.includes("Built-in tools [unsupported_tool] are not currently supported"),
-            string `expected unsupported built-in tool error, found: ${errorMsg}`);
-}
-
-@test:Config
-function testChatCompletionsWithBuiltInToolError() returns error? {
-    ai:ChatUserMessage userMsg = {role: "user", content: "Search the web"};
-    ai:BuiltInTool webSearchTool = {name: "web_search"};
-    ai:ChatAssistantMessage|ai:Error result = provider->chat(userMsg, [webSearchTool]);
-    test:assertTrue(result is ai:Error);
-    string errorMsg = (<ai:Error>result).message();
-    test:assertTrue(errorMsg.includes("Built-in tools [web_search] are not supported"),
-            string `expected built-in tool error for Chat Completions, found: ${errorMsg}`);
-}
 

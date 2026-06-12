@@ -125,15 +125,10 @@ service /llm on new http:Listener(8080) {
         // Check if tools are provided and classify them
         json|error toolsJson = payload.tools;
         boolean hasGetResultsTool = false;
-        boolean hasBuiltInTool = false;
-        boolean hasFunctionTool = false;
         if toolsJson is json[] && toolsJson.length() > 0 {
             foreach json tool in toolsJson {
                 string? toolType = check tool.'type.ensureType();
-                if toolType == "web_search" || toolType == "web_search_2025_08_26" || toolType == "code_interpreter" {
-                    hasBuiltInTool = true;
-                } else if toolType == "function" {
-                    hasFunctionTool = true;
+                if toolType == "function" {
                     string? toolName = check tool.name.ensureType();
                     if toolName == GET_RESULTS_TOOL {
                         hasGetResultsTool = true;
@@ -154,11 +149,6 @@ service /llm on new http:Listener(8080) {
                     string `Responses API: Test failed for prompt with initial content, ${initialText}`);
             // Return response with function_call output item (for generate() path)
             return getTestResponsesApiResponseWithToolCall(initialText);
-        }
-
-        // If only built-in tools (no function tools), return text response
-        if hasBuiltInTool && !hasFunctionTool {
-            return getTestResponsesApiChatResponse(initialText);
         }
 
         // If non-getResults tools are provided (chat with tools path), return tool call response
