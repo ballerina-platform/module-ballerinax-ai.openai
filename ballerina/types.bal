@@ -77,9 +77,12 @@ public type ConnectionConfig record {|
     boolean validation = true;
 |};
 
-# Defines which OpenAI API endpoint to use for model interactions (internal).
-enum ApiType {
+# Defines which OpenAI API endpoint to use for model interactions.
+@display {label: "OpenAI API Type"}
+public enum ApiType {
+    # Use the OpenAI Chat Completions API (`/chat/completions`)
     CHAT_COMPLETIONS = "chat_completions",
+    # Use the OpenAI Responses API (`/responses`)
     RESPONSES = "responses"
 }
 
