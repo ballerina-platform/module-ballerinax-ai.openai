@@ -64,7 +64,7 @@ public isolated distinct client class ModelProvider {
         self.apiType = apiType;
 
         if apiType == CHAT_COMPLETIONS {
-            chat:ClientHttp1Settings?|error http1Settings = connectionConfig?.http1Settings.cloneWithType();
+            http:ClientHttp1Settings?|error http1Settings = connectionConfig?.http1Settings.cloneWithType();
             if http1Settings is error {
                 return error ai:Error("Failed to clone http1Settings", http1Settings);
             }
@@ -174,11 +174,15 @@ public isolated distinct client class ModelProvider {
 
         chat:CreateChatCompletionRequest request = {
             max_completion_tokens: self.maxTokens,
-            temperature: self.temperature,
-            stop,
             model: self.modelType,
             messages: check self.prepareCompletionRequestMessages(messages, tools)
         };
+        if temp is decimal {
+            request.temperature = temp;
+        }
+        if stop is string {
+            request.stop = stop;
+        }
         boolean supportsToolCalls = isToolCallSupported(self.modelType);
         if supportsToolCalls && tools.length() > 0 {
             request.tools = convertFunctionsToCompletionTools(tools);
@@ -196,8 +200,8 @@ public isolated distinct client class ModelProvider {
         record {|
             "stop"|"length"|"tool_calls"|"content_filter"|"function_call" finish_reason; 
             int index; 
-            chat:ChatCompletionResponseMessage message; 
-            anydata logprobs; 
+            chat:ChatCompletionResponseMessage message;
+            record {chat:ChatCompletionTokenLogprob[] content; chat:ChatCompletionTokenLogprob[] refusal;} logprobs?;
             anydata...;
         |}[] choices = response.choices;
         
@@ -385,7 +389,11 @@ public isolated distinct client class ModelProvider {
                     name: message.name
                 });
             } else if message is ai:ChatFunctionMessage {
-                chatCompletionRequestMessages.push(message);
+                chatCompletionRequestMessages.push(<chat:ChatCompletionRequestFunctionMessage>{
+                    role: "function",
+                    content: message.content ?: "",
+                    name: message.name
+                });
             }
         }
         return chatCompletionRequestMessages;
@@ -447,8 +455,8 @@ public isolated distinct client class ModelProvider {
                     chatAssistantMessage.toolCalls = functionCalls;
                 } else {
                     // Fall back to deprecated function_call for backward compatibility
-                    chat:ChatCompletionResponseMessage_function_call? functionCall = message?.function_call;
-                    if functionCall is chat:ChatCompletionResponseMessage_function_call {
+                    chat:ChatCompletionResponseMessageFunctionCall? functionCall = message?.function_call;
+                    if functionCall is chat:ChatCompletionResponseMessageFunctionCall {
                         json arguments = check functionCall.arguments.fromJsonString();
                         chatAssistantMessage.toolCalls = [
                             {

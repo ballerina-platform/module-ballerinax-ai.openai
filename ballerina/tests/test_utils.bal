@@ -226,6 +226,10 @@ isolated function getTheMockLLMResult(string message) returns string {
         return "{\"result\": \"This is a sample image description.\"}";
     }
 
+    if message.startsWith("Please describe the audio content. ") {
+        return "{\"result\": \"This is a sample audio description.\"}";
+    }
+
     if message.startsWith("Name a random world class cricketer in India") {
         return "{\"result\": {\"name\": \"Sanga\"}}";
     }

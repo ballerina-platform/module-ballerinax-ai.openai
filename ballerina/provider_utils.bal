@@ -255,9 +255,11 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
         model: modelType,
         tools,
         tool_choice: getGetResultsToolChoice(),
-        temperature,
         max_completion_tokens: maxTokens
     };
+    if temperature is decimal {
+        request.temperature = temperature;
+    }
     span.addInputMessages(request.messages.toJson());
     chat:CreateChatCompletionResponse|error response = llmClient->/chat/completions.post(request);
     if response is error {
@@ -282,8 +284,8 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
     record {|
         "stop"|"length"|"tool_calls"|"content_filter"|"function_call" finish_reason; 
         int index; 
-        chat:ChatCompletionResponseMessage message; 
-        anydata logprobs; 
+        chat:ChatCompletionResponseMessage message;
+        record {chat:ChatCompletionTokenLogprob[] content; chat:ChatCompletionTokenLogprob[] refusal;} logprobs?;
         anydata...;
     |}[] choices = response.choices;
 

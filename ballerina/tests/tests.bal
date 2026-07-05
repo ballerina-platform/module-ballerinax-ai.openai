@@ -178,9 +178,8 @@ function testGenerateMethodWithAudioDocument() returns ai:Error? {
         }
     };
 
-    string[]|error descriptions = provider->generate(`What is the content in this document. ${aud}.`);
-    test:assertTrue(descriptions is error);
-    test:assertTrue((<error>descriptions).message().includes("Only text and image documents are supported."));
+    string|error description = provider->generate(`Please describe the audio content. ${aud}.`);
+    test:assertEquals(description, "This is a sample audio description.");
 }
 
 @test:Config
@@ -191,7 +190,7 @@ function testGenerateMethodWithUnsupportedDocument() returns ai:Error? {
 
     string[]|error descriptions = provider->generate(`What is the content in this document. ${doc}.`);
     test:assertTrue(descriptions is error);
-    test:assertTrue((<error>descriptions).message().includes("Only text and image documents are supported."));
+    test:assertTrue((<error>descriptions).message().includes("Only text, image and audio documents are supported."));
 }
 
 @test:Config
