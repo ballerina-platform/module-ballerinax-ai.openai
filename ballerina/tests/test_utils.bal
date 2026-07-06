@@ -254,6 +254,10 @@ isolated function getTheMockLLMResult(string message) returns string {
 }
 
 isolated function getTestServiceResponse(string content) returns chat:CreateChatCompletionResponse =>
+    getGenerateResultToolResponse(getTheMockLLMResult(content));
+
+// Builds a getResults tool-call response for the generate() path with the given raw arguments.
+isolated function getGenerateResultToolResponse(string arguments) returns chat:CreateChatCompletionResponse =>
     {
     id: "test-id",
     'object: "chat.completion",
@@ -274,13 +278,14 @@ isolated function getTestServiceResponse(string content) returns chat:CreateChat
                         'type: "function",
                         'function: {
                             name: GET_RESULTS_TOOL,
-                            arguments: getTheMockLLMResult(content)
+                            arguments: arguments
                         }
                     }
                 ]
             }
         }
-    ]
+    ],
+    usage: {prompt_tokens: 42, completion_tokens: 18, total_tokens: 60}
 };
 
 isolated function getExpectedContentParts(string message) returns map<anydata>[] {
