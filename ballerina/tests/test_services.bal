@@ -682,6 +682,41 @@ isolated function buildFunctionCallResponse(string name, string arguments, strin
     tools: []
 };
 
+// A Responses API result carrying two function calls in one turn (parallel tool calling).
+isolated function buildParallelFunctionCallResponse() returns responses:Response => {
+    id: "resp_unit_parallel_fc",
+    'object: "response",
+    created_at: 1234567890,
+    model: "gpt-4o",
+    status: "completed",
+    'error: (),
+    incomplete_details: (),
+    instructions: (),
+    output: [
+        {
+            id: "fc_unit_1",
+            'type: "function_call",
+            name: "getWeather",
+            arguments: "{\"city\": \"London\"}",
+            call_id: "call_weather",
+            status: "completed"
+        },
+        {
+            id: "fc_unit_2",
+            'type: "function_call",
+            name: "getTime",
+            arguments: "{\"city\": \"London\"}",
+            call_id: "call_time",
+            status: "completed"
+        }
+    ],
+    output_text: "",
+    usage: (),
+    tool_choice: "auto",
+    metadata: (),
+    tools: []
+};
+
 isolated function buildEmptyResponse() returns responses:Response => {
     id: "resp_unit_empty",
     'object: "response",

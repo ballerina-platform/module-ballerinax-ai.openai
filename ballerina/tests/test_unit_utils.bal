@@ -455,6 +455,52 @@ function testConvertToResponsesInputWithSystemUserAssistantFunction() returns ai
 }
 
 @test:Config
+function testConvertToResponsesInputWithParallelToolCalls() returns ai:Error? {
+    // A single assistant turn carrying two tool calls must produce one `function_call`
+    // input item per call, each paired with its own `function_call_output`.
+    ai:ChatMessage[] messages = [
+        <ai:ChatUserMessage>{role: "user", content: "Weather and time?"},
+        <ai:ChatAssistantMessage>{
+            role: "assistant",
+            toolCalls: [
+                {id: "call_weather", name: "getWeather", arguments: {"city": "London"}},
+                {id: "call_time", name: "getTime", arguments: {"city": "London"}}
+            ]
+        },
+        <ai:ChatFunctionMessage>{role: "function", name: "getWeather", id: "call_weather", content: "sunny"},
+        <ai:ChatFunctionMessage>{role: "function", name: "getTime", id: "call_time", content: "10:00"}
+    ];
+    [responses:InputParam, string?] [items, _] =
+        check convertToResponsesInput(messages, sampleTools, GPT_4O);
+    responses:InputItem[] itemArr = <responses:InputItem[]>items;
+    // user + 2 function_call + 2 function_call_output = 5
+    test:assertEquals(itemArr.length(), 5);
+
+    responses:FunctionToolCall firstCall = <responses:FunctionToolCall>itemArr[1];
+    test:assertEquals(firstCall.name, "getWeather");
+    test:assertEquals(firstCall.call_id, "call_weather");
+    responses:FunctionToolCall secondCall = <responses:FunctionToolCall>itemArr[2];
+    test:assertEquals(secondCall.name, "getTime");
+    test:assertEquals(secondCall.call_id, "call_time");
+}
+
+@test:Config
+function testConvertResponsesOutputToAssistantMessageParallelToolCalls() returns ai:Error? {
+    ai:ChatAssistantMessage msg = check convertResponsesOutputToAssistantMessage(
+            buildParallelFunctionCallResponse());
+    ai:FunctionCall[]? toolCalls = msg.toolCalls;
+    test:assertTrue(toolCalls is ai:FunctionCall[]);
+    ai:FunctionCall[] functionCalls = <ai:FunctionCall[]>toolCalls;
+    test:assertEquals(functionCalls.length(), 2);
+    test:assertEquals(functionCalls[0].id, "call_weather");
+    test:assertEquals(functionCalls[0].name, "getWeather");
+    test:assertEquals(functionCalls[0].arguments, {"city": "London"});
+    test:assertEquals(functionCalls[1].id, "call_time");
+    test:assertEquals(functionCalls[1].name, "getTime");
+    test:assertEquals(functionCalls[1].arguments, {"city": "London"});
+}
+
+@test:Config
 function testConvertToResponsesInputAssistantWithoutToolCalls() returns ai:Error? {
     ai:ChatMessage[] messages = [
         <ai:ChatAssistantMessage>{role: "assistant", content: "just text"}
