@@ -86,6 +86,27 @@ public enum ApiType {
     RESPONSES = "responses"
 }
 
+# Constrains the effort spent on reasoning for reasoning-capable models.
+# Supported by both the Chat Completions API (`reasoning_effort`) and the Responses API (`reasoning.effort`).
+# Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning.
+@display {label: "Reasoning Effort"}
+public enum ReasoningEffort {
+    NONE = "none",
+    MINIMAL = "minimal",
+    LOW = "low",
+    MEDIUM = "medium",
+    HIGH = "high",
+    XHIGH = "xhigh"
+}
+
+# Reasoning configuration for reasoning-capable OpenAI models.
+# Applies to both the Chat Completions API and the Responses API.
+@display {label: "Reasoning Configuration"}
+public type ReasoningConfig record {|
+    # Constrains the effort spent on reasoning. Honored by both the Chat Completions and Responses APIs.
+    ReasoningEffort effort?;
+|};
+
 # Model types for OpenAI
 @display {label: "OpenAI Model Names"}
 public enum OPEN_AI_MODEL_NAMES {
