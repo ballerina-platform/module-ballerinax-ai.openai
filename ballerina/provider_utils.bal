@@ -126,14 +126,14 @@ isolated function generateChatCreationContent(ai:Prompt prompt)
         anydata insertion = insertions[i];
         string str = strings[i + 1];
 
-        if insertion is ai:Document {
+        if insertion is ai:Document|ai:Chunk {
             addTextContentPart(buildTextContentPart(accumulatedTextContent), contentParts);
             accumulatedTextContent = "";
             check addDocumentContentPart(insertion, contentParts);
-        } else if insertion is ai:Document[] {
+        } else if insertion is (ai:Document|ai:Chunk)[] {
             addTextContentPart(buildTextContentPart(accumulatedTextContent), contentParts);
             accumulatedTextContent = "";
-            foreach ai:Document doc in insertion {
+            foreach ai:Document|ai:Chunk doc in insertion {
                 check addDocumentContentPart(doc, contentParts);
             }
         } else {
@@ -146,8 +146,8 @@ isolated function generateChatCreationContent(ai:Prompt prompt)
     return contentParts;
 }
 
-isolated function addDocumentContentPart(ai:Document doc, DocumentContentPart[] contentParts) returns ai:Error? {
-    if doc is ai:TextDocument {
+isolated function addDocumentContentPart(ai:Document|ai:Chunk doc, DocumentContentPart[] contentParts) returns ai:Error? {
+    if doc is ai:TextDocument|ai:TextChunk {
         return addTextContentPart(buildTextContentPart(doc.content), contentParts);
     } else if doc is ai:ImageDocument {
         return contentParts.push(check buildImageContentPart(doc));
@@ -285,7 +285,7 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
         "stop"|"length"|"tool_calls"|"content_filter"|"function_call" finish_reason; 
         int index; 
         chat:ChatCompletionResponseMessage message;
-        record {chat:ChatCompletionTokenLogprob[] content; chat:ChatCompletionTokenLogprob[] refusal;} logprobs?;
+        record {chat:ChatCompletionTokenLogprob[]? content; chat:ChatCompletionTokenLogprob[]? refusal;} logprobs?;
         anydata...;
     |}[] choices = response.choices;
 

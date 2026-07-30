@@ -122,6 +122,14 @@ service /llm on new http:Listener(8080) {
         if userContent.startsWith("TRIGGER_MALFORMED_TOOL_ARGS") {
             return getChatCompletionsMalformedToolArgsResponse();
         }
+        // Parallel tool calling: a single assistant turn carrying more than one tool call.
+        if userContent.startsWith("TRIGGER_PARALLEL_TOOL_CALLS") {
+            chat:ChatCompletionTool[]? parallelTools = check (check payload.tools).fromJsonWithType();
+            if parallelTools is () || parallelTools.length() == 0 {
+                test:assertFail("No tools in the payload");
+            }
+            return getParallelToolCallResponse();
+        }
 
         // ReAct models (no native tool-call support) receive a ReAct-formatted string.
         if model == CHATGPT_4O_LATEST {

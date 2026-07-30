@@ -49,6 +49,14 @@ isolated function getExpectedParameterSchema(string message) returns map<json> {
         return expectedParameterSchemaStringForRateBlog2;
     }
 
+    if message.startsWith("How would you rate these text chunks") {
+        return expectedParameterSchemaStringForRateBlog5;
+    }
+
+    if message.startsWith("How would you rate this text chunk") {
+        return expectedParameterSchemaStringForRateBlog;
+    }
+
     if message.startsWith("How would you rate this") {
         return expectedParameterSchemaStringForRateBlog;
     }
@@ -122,7 +130,7 @@ isolated function getExpectedParameterSchema(string message) returns map<json> {
     }
 
     if message.startsWith("Give me a random joke") {
-        return {"type":"object","properties":{"result":{"anyOf":[{"type":"string"},{"type":"null"}]}}};
+        return {"type": "object", "properties": {"result": {"anyOf": [{"type": "string"}, {"type": "null"}]}}};
     }
 
     if message.startsWith("Name a random world class cricketer in India") {
@@ -194,6 +202,14 @@ isolated function getTheMockLLMResult(string message) returns string {
         return review;
     }
 
+    if message.startsWith("How would you rate these text chunks") {
+        return string `{"result": [${review}, ${review}]}`;
+    }
+
+    if message.startsWith("How would you rate this text chunk") {
+        return {result: 4}.toJsonString();
+    }
+
     if message.startsWith("How would you rate this") {
         return "{\"result\": 4}";
     }
@@ -252,6 +268,37 @@ isolated function getTheMockLLMResult(string message) returns string {
 
     return "INVALID";
 }
+
+isolated function getParallelToolCallResponse() returns chat:CreateChatCompletionResponse => {
+    id: "test-parallel-id",
+    'object: "chat.completion",
+    created: 1234567890,
+    model: "gpt-4o",
+    choices: [
+        {
+            finish_reason: "tool_calls",
+            index: 0,
+            logprobs: (),
+            message: {
+                content: (),
+                refusal: (),
+                role: "assistant",
+                tool_calls: [
+                    {
+                        id: "call_weather",
+                        'type: "function",
+                        'function: {name: "getWeather", arguments: "{\"city\": \"London\"}"}
+                    },
+                    {
+                        id: "call_time",
+                        'type: "function",
+                        'function: {name: "getTime", arguments: "{\"city\": \"London\"}"}
+                    }
+                ]
+            }
+        }
+    ]
+};
 
 isolated function getTestServiceResponse(string content) returns chat:CreateChatCompletionResponse =>
     getGenerateResultToolResponse(getTheMockLLMResult(content));
@@ -321,6 +368,14 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
         return expectedContentPartsForRateBlog8;
     }
 
+    if message.startsWith("How would you rate these text chunks") {
+        return expectedContentPartsForTextChunkArray;
+    }
+
+    if message.startsWith("How would you rate this text chunk") {
+        return expectedContentPartsForTextChunk;
+    }
+
     if message.startsWith("How would you rate this") {
         return expectedContentPartsForRateBlog5;
     }
@@ -347,14 +402,14 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
                 "type": "image_url",
                 "image_url": {
                     "url": string `data:image/png;base64,${sampleBase64Str}`,
-                    "detail":"auto"
+                    "detail": "auto"
                 }
             },
             {
                 "type": "image_url",
                 "image_url": {
                     "url": sampleImageUrl,
-                    "detail":"auto"
+                    "detail": "auto"
                 }
             },
             {"type": "text", "text": "."}
@@ -368,7 +423,7 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
                 "type": "image_url",
                 "image_url": {
                     "url": string `data:image/png;base64,${sampleBase64Str}`,
-                    "detail":"auto"
+                    "detail": "auto"
                 }
             },
             {
@@ -386,7 +441,7 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
                 "type": "image_url",
                 "image_url": {
                     "url": string `data:image/png;base64,${sampleBase64Str}`,
-                    "detail":"auto"
+                    "detail": "auto"
                 }
             },
             {
@@ -403,7 +458,7 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
                 "type": "image_url",
                 "image_url": {
                     "url": string `data:image/*;base64,${sampleBase64Str}`,
-                    "detail":"auto"
+                    "detail": "auto"
                 }
             },
             {"type": "text", "text": "."}
@@ -417,7 +472,7 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
                 "type": "image_url",
                 "image_url": {
                     "url": sampleImageUrl,
-                    "detail":"auto"
+                    "detail": "auto"
                 }
             },
             {"type": "text", "text": "."}
@@ -431,7 +486,7 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
                 "type": "image_url",
                 "image_url": {
                     "url": "This-is-not-a-valid-url",
-                    "detail":"auto"
+                    "detail": "auto"
                 }
             },
             {"type": "text", "text": "."}
@@ -445,7 +500,7 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
                 "type": "input_audio",
                 "input_audio": {
                     "data": sampleBase64Str,
-                    "format":"mp3"
+                    "format": "mp3"
                 }
             },
             {"type": "text", "text": "."}
@@ -459,14 +514,14 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
                 "type": "input_audio",
                 "input_audio": {
                     "data": sampleBase64Str,
-                    "format":"mp3"
+                    "format": "mp3"
                 }
             },
             {
                 "type": "input_audio",
                 "input_audio": {
                     "data": sampleBase64Str,
-                    "format":"mp3"
+                    "format": "mp3"
                 }
             },
             {"type": "text", "text": "."}
@@ -486,7 +541,7 @@ isolated function getExpectedContentParts(string message) returns map<anydata>[]
     }
 
     if message.startsWith("Name top 10 world class cricketers") {
-        return [{"type": "text", "text": "Name top 10 world class cricketers"}]; 
+        return [{"type": "text", "text": "Name top 10 world class cricketers"}];
     }
 
     if message.startsWith("Name a random world class cricketer in India") {

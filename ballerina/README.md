@@ -1,6 +1,15 @@
 ## Overview
 
-This module offers APIs for connecting with OpenAI Large Language Models (LLM).
+OpenAI provides powerful AI models for natural language processing, image generation, and other advanced tasks.
+
+The OpenAI connector offers APIs for connecting with OpenAI Large Language Models (LLMs), enabling the integration of advanced conversational AI, text generation, and language processing capabilities into applications.
+
+### Key Features
+
+- Connect and interact with OpenAI Large Language Models (LLMs)
+- Support for GPT-4o, GPT-4, GPT-3.5, and other advanced models
+- Efficient handling of conversational prompts and completions
+- Secure communication with API key authentication
 
 ## Prerequisites
 

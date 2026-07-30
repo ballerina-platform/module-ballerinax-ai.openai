@@ -209,7 +209,7 @@ public isolated distinct client class ModelProvider {
             "stop"|"length"|"tool_calls"|"content_filter"|"function_call" finish_reason; 
             int index; 
             chat:ChatCompletionResponseMessage message;
-            record {chat:ChatCompletionTokenLogprob[] content; chat:ChatCompletionTokenLogprob[] refusal;} logprobs?;
+            record {chat:ChatCompletionTokenLogprob[]? content; chat:ChatCompletionTokenLogprob[]? refusal;} logprobs?;
             anydata...;
         |}[] choices = response.choices;
         
