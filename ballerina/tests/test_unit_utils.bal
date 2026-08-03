@@ -189,9 +189,63 @@ function testSupportsReasoning() {
     test:assertTrue(supportsReasoning(O4_MINI));
     test:assertTrue(supportsReasoning(GPT_5));
     test:assertTrue(supportsReasoning(GPT_5_MINI));
-    test:assertTrue(supportsReasoning(CODEX_MINI_LATEST));
+    test:assertTrue(supportsReasoning(GPT_5_6_SOL));
+    test:assertTrue(supportsReasoning(GPT_5_5_PRO));
     test:assertFalse(supportsReasoning(GPT_4O));
     test:assertFalse(supportsReasoning(GPT_3_5_TURBO));
+}
+
+@test:Config
+function testSupportsReasoningIsFalseForChatVariants() {
+    // The `*-chat-latest` models share the `gpt-5` prefix but are not reasoning models.
+    test:assertFalse(supportsReasoning(GPT_5_CHAT));
+    test:assertFalse(supportsReasoning(GPT_5_1_CHAT));
+    test:assertFalse(supportsReasoning(GPT_5_2_CHAT));
+}
+
+@test:Config
+function testValidateReasoningConfigAcceptsSupportedEfforts() {
+    test:assertTrue(validateReasoningConfig(GPT_5, {effort: MINIMAL}) is ());
+    test:assertTrue(validateReasoningConfig(GPT_5_1, {effort: NONE}) is ());
+    test:assertTrue(validateReasoningConfig(GPT_5_2, {effort: XHIGH}) is ());
+    test:assertTrue(validateReasoningConfig(GPT_5_PRO, {effort: HIGH}) is ());
+    test:assertTrue(validateReasoningConfig(GPT_5_6_SOL, {effort: XHIGH}) is ());
+    // No reasoning configuration at all is always valid.
+    test:assertTrue(validateReasoningConfig(GPT_4O, ()) is ());
+    // A reasoning model with no explicit effort is valid.
+    test:assertTrue(validateReasoningConfig(GPT_5, {}) is ());
+}
+
+@test:Config
+function testValidateReasoningConfigRejectsUnsupportedEfforts() {
+    // `none` and `xhigh` were introduced after the gpt-5 generation.
+    test:assertTrue(validateReasoningConfig(GPT_5, {effort: NONE}) is ai:Error);
+    test:assertTrue(validateReasoningConfig(GPT_5, {effort: XHIGH}) is ai:Error);
+    // gpt-5.1 dropped `minimal` and does not accept `xhigh`.
+    test:assertTrue(validateReasoningConfig(GPT_5_1, {effort: MINIMAL}) is ai:Error);
+    test:assertTrue(validateReasoningConfig(GPT_5_1, {effort: XHIGH}) is ai:Error);
+    // gpt-5-pro only supports `high`.
+    test:assertTrue(validateReasoningConfig(GPT_5_PRO, {effort: LOW}) is ai:Error);
+    // The `*-pro` models do not accept the lower levels.
+    test:assertTrue(validateReasoningConfig(GPT_5_5_PRO, {effort: NONE}) is ai:Error);
+}
+
+@test:Config
+function testValidateReasoningConfigRejectsNonReasoningModels() {
+    ai:Error? result = validateReasoningConfig(GPT_4O, {effort: LOW});
+    if result !is ai:Error {
+        test:assertFail("Expected an error for a model that does not support reasoning");
+    }
+    test:assertTrue(result.message().includes("does not support the 'reasoning' configuration"), result.message());
+}
+
+@test:Config
+function testInitFailsForUnsupportedReasoningEffort() {
+    ModelProvider|ai:Error result = new (API_KEY, GPT_5_PRO, SERVICE_URL, reasoning = {effort: LOW});
+    if result !is ai:Error {
+        test:assertFail("Expected initialization to fail for an unsupported reasoning effort");
+    }
+    test:assertTrue(result.message().includes("does not support the reasoning effort"), result.message());
 }
 
 @test:Config
@@ -452,6 +506,22 @@ function testConvertToResponsesInputWithSystemUserAssistantFunction() returns ai
     responses:InputItem[] itemArr = <responses:InputItem[]>items;
     // user + assistant-content + function_call + function_call_output = 4
     test:assertEquals(itemArr.length(), 4);
+}
+
+@test:Config
+function testConvertToResponsesInputWithNilToolCallArguments() returns ai:Error? {
+    // `ai:FunctionCall.arguments` is nilable; a nil value must serialize to "{}" and never to "null".
+    ai:ChatMessage[] messages = [
+        <ai:ChatUserMessage>{role: "user", content: "Ping?"},
+        <ai:ChatAssistantMessage>{
+            role: "assistant",
+            toolCalls: [{id: "call_1", name: "ping", arguments: ()}]
+        }
+    ];
+    [responses:InputParam, string?] [items, _] = check convertToResponsesInput(messages, sampleTools, GPT_4O);
+    responses:InputItem[] itemArr = <responses:InputItem[]>items;
+    responses:FunctionToolCall call = <responses:FunctionToolCall>itemArr[1];
+    test:assertEquals(call.arguments, "{}");
 }
 
 @test:Config

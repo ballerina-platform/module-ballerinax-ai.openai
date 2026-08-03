@@ -25,6 +25,9 @@ final ModelProvider reasoningProvider = check new (API_KEY, GPT_5, SERVICE_URL,
 // Provider with temperature disabled.
 final ModelProvider noTempProvider = check new (API_KEY, GPT_4_TURBO, SERVICE_URL,
         temperature = (), apiType = CHAT_COMPLETIONS);
+// Reasoning-capable provider over the Chat Completions API.
+final ModelProvider chatReasoningProvider = check new (API_KEY, GPT_5, SERVICE_URL,
+        reasoning = {effort: "low"}, apiType = CHAT_COMPLETIONS);
 
 final ai:ChatCompletionFunctions[] weatherTool = [
     {
@@ -221,11 +224,37 @@ function testResponsesChatStatusInProgress() {
 }
 
 @test:Config
-function testResponsesChatWithStopWarning() returns ai:Error? {
-    // The Responses API does not support `stop`; it should be ignored with a warning.
+function testResponsesChatWithStopReturnsError() {
+    // The Responses API has no stop-sequence parameter, so the value cannot be honored and
+    // the call must fail instead of silently dropping it.
     ai:ChatUserMessage userMsg = {role: "user", content: "Hello there"};
-    ai:ChatAssistantMessage result = check responsesProvider->chat(userMsg, [], "STOPSEQ");
-    test:assertEquals(result.content, "This is a mock response for: Hello there");
+    ai:ChatAssistantMessage|ai:Error result = responsesProvider->chat(userMsg, [], "STOPSEQ");
+    if result !is ai:Error {
+        test:assertFail("Expected an error when 'stop' is used with the Responses API");
+    }
+    test:assertTrue(result.message().includes("'stop' parameter is not supported"), result.message());
+}
+
+@test:Config
+function testDefaultApiTypeIsChatCompletions() returns ai:Error? {
+    // A provider created without an explicit `apiType` must use the Chat Completions API. `stop` is
+    // honored there and rejected on the Responses API, so a successful call proves the routing.
+    ModelProvider defaultProvider = check new (API_KEY, GPT_4_TURBO, SERVICE_URL);
+    ai:ChatUserMessage userMsg = {role: "user", content: "Hello, how are you?"};
+    ai:ChatAssistantMessage result = check defaultProvider->chat(userMsg, [], "STOPSEQ");
+    test:assertEquals(result.content, "This is a mock response for: Hello, how are you?");
+}
+
+@test:Config
+function testResponsesGenerateForwardsReasoningAndDisablesStore() returns ai:Error? {
+    int result = check reasoningProvider->generate(`TRIGGER_GEN_ASSERT_REQUEST rate this out of 10`);
+    test:assertEquals(result, 7);
+}
+
+@test:Config
+function testChatCompletionsGenerateForwardsReasoning() returns ai:Error? {
+    int result = check chatReasoningProvider->generate(`TRIGGER_GEN_ASSERT_REASONING rate this out of 10`);
+    test:assertEquals(result, 7);
 }
 
 @test:Config

@@ -30,7 +30,11 @@ const FINAL_ANSWER_KEY = "Final Answer";
 final string:RegExp ACTION_INPUT_REGEX = re `^action.?input`;
 final string:RegExp FINAL_ANSWER_REGEX = re `^final.?answer`;
 
-isolated function isToolCallSupported(OPEN_AI_MODEL_NAMES model) returns boolean => model != CHATGPT_4O_LATEST;
+// `chatgpt-4o-latest` is the only model in the catalog without native tool-call support, so it is the
+// sole model routed through the ReAct fallback below. It was shut down by OpenAI on 2026-02-17; the
+// literal is compared here (rather than the deprecated `CHATGPT_4O_LATEST` member) to keep this
+// module warning-free. Once no reachable model needs it, the ReAct path can be removed outright.
+isolated function isToolCallSupported(OPEN_AI_MODEL_NAMES model) returns boolean => model != "chatgpt-4o-latest";
 
 isolated function constructReActPrompt(ToolInfo toolInfo, string instructions) returns string =>
 string `Respond to the human as helpfully and accurately as possible.

@@ -68,7 +68,7 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
                     inputItems.push({
                         'type: "function_call",
                         name: tc.name,
-                        arguments: tc?.arguments.toJsonString(),
+                        arguments: (tc.arguments ?: {}).toJsonString(),
                         call_id: tc.id ?: string `call_${tc.name}`,
                         status: "completed"
                     });
@@ -195,11 +195,12 @@ isolated function convertContentPartsForResponses(DocumentContentPart[] parts) r
 # + modelType - The model to use
 # + temperature - The sampling temperature for the response
 # + maxTokens - The maximum number of tokens to generate in the response
+# + reasoning - The reasoning configuration, applied when the model supports it
 # + prompt - The user prompt
 # + expectedResponseTypedesc - The expected response type descriptor
 # + return - The parsed response or an error
 isolated function generateLlmResponseViaResponses(responses:Client responsesClient, OPEN_AI_MODEL_NAMES modelType,
-        decimal? temperature, int maxTokens,
+        decimal? temperature, int maxTokens, ReasoningConfig? reasoning,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc)
         returns anydata|ai:Error {
     observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
@@ -256,8 +257,20 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
         tools: [getResultsTool],
         tool_choice: toolChoice,
         temperature: temperature,
-        max_output_tokens: maxTokens
+        max_output_tokens: maxTokens,
+        // `store` defaults to `true` in the connector, which would retain the prompt and the
+        // generated value at OpenAI for 30 days. Match `chatViaResponses` and keep it off.
+        store: false
     };
+
+    if reasoning is ReasoningConfig && supportsReasoning(modelType) {
+        responses:Reasoning reasoningParam = {};
+        ReasoningEffort? effort = reasoning.effort;
+        if effort is ReasoningEffort {
+            reasoningParam.effort = effort;
+        }
+        request.reasoning = reasoningParam;
+    }
 
     span.addInputMessages([inputMessage].toJson());
 

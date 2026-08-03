@@ -26,9 +26,9 @@ service /llm on new http:Listener(8080) {
     resource function post openai/chat/completions(@http:Payload json payload)
                 returns chat:CreateChatCompletionResponse|error {
         string model = check payload.model.ensureType();
-        // The chat-completions path is exercised by both the GPT_4_TURBO provider and the
-        // ReAct-based CHATGPT_4O_LATEST provider.
-        test:assertTrue(model == GPT_4_TURBO || model == CHATGPT_4O_LATEST,
+        // The chat-completions path is exercised by the GPT_4_TURBO provider, the ReAct-based
+        // CHATGPT_4O_LATEST provider, and the reasoning-capable GPT_5 provider.
+        test:assertTrue(model == GPT_4_TURBO || model == CHATGPT_4O_LATEST || model == GPT_5,
                 string `Unexpected model in chat/completions request: ${model}`);
         chat:ChatCompletionRequestMessage[] messages = check (check payload.messages).fromJsonWithType();
 
@@ -62,6 +62,12 @@ service /llm on new http:Listener(8080) {
             string initialText = initialTextContent.text;
 
             // Error/edge-case triggers for the generate() path, evaluated before schema validation.
+            if initialText.startsWith("TRIGGER_GEN_ASSERT_REASONING") {
+                // The reasoning configuration must reach generate(), not only chat().
+                test:assertEquals(check payload.reasoning_effort, "low",
+                        "generate() must forward the configured reasoning effort");
+                return getGenerateResultToolResponse("{\"result\": 7}");
+            }
             if initialText.startsWith("TRIGGER_GEN_CONNECTION_ERROR") {
                 return error("Simulated upstream failure");
             }
@@ -225,6 +231,15 @@ service /llm on new http:Listener(8080) {
 
         if hasGetResultsTool {
             // Error/edge-case triggers for the generate() path, evaluated before schema validation.
+            if initialText.startsWith("TRIGGER_GEN_ASSERT_REQUEST") {
+                // `store` must be explicitly disabled so the prompt and the generated value are not
+                // retained at OpenAI, and the reasoning configuration must reach generate() as well.
+                test:assertEquals(check payload.store, false,
+                        "generate() must send store=false on the Responses API");
+                test:assertEquals(check payload.reasoning.effort, "low",
+                        "generate() must forward the configured reasoning effort");
+                return getResponsesGenerateResultResponse("{\"result\": 7}");
+            }
             if initialText.startsWith("TRIGGER_GEN_CONNECTION_ERROR") {
                 return error("Simulated upstream failure");
             }

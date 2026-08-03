@@ -89,6 +89,14 @@ public enum ApiType {
 # Constrains the effort spent on reasoning for reasoning-capable models.
 # Supported by both the Chat Completions API (`reasoning_effort`) and the Responses API (`reasoning.effort`).
 # Reducing reasoning effort can result in faster responses and fewer tokens used on reasoning.
+#
+# Each model accepts only a subset of these values; for example, `gpt-5` accepts
+# `minimal`, `low`, `medium` and `high`, while `gpt-5-pro` accepts only `high`.
+# The value is validated against the selected model when the provider is initialized.
+#
+# Note: the `max` effort accepted by the `gpt-5.6` family cannot be represented yet, because
+# `ballerinax/openai.chat` and `ballerinax/openai.responses` declare a closed `ReasoningEffort`
+# union without it. Add `MAX` here once those connectors are regenerated.
 @display {label: "Reasoning Effort"}
 public enum ReasoningEffort {
     NONE = "none",
@@ -145,19 +153,31 @@ public enum OPEN_AI_MODEL_NAMES {
     GPT_5_MINI = "gpt-5-mini",
     GPT_5_NANO = "gpt-5-nano",
     GPT_5_PRO = "gpt-5-pro",
-    GPT_5_CHAT = "gpt-5-chat",
-    GPT_5_CODEX = "gpt-5-codex",
     GPT_5_1 = "gpt-5.1",
-    GPT_5_1_CHAT = "gpt-5.1-chat",
+    GPT_5_2 = "gpt-5.2",
+    GPT_5_2_PRO = "gpt-5.2-pro",
+    GPT_5_3_CODEX = "gpt-5.3-codex",
+    GPT_5_4 = "gpt-5.4",
+    GPT_5_4_MINI = "gpt-5.4-mini",
+    GPT_5_4_NANO = "gpt-5.4-nano",
+    GPT_5_4_PRO = "gpt-5.4-pro",
+    GPT_5_5 = "gpt-5.5",
+    GPT_5_5_PRO = "gpt-5.5-pro",
+    # Alias that always routes to the latest `gpt-5.6-sol` snapshot.
+    GPT_5_6 = "gpt-5.6",
+    GPT_5_6_SOL = "gpt-5.6-sol",
+    GPT_5_6_TERRA = "gpt-5.6-terra",
+    GPT_5_6_LUNA = "gpt-5.6-luna",
+    GPT_4O_AUDIO_PREVIEW = "gpt-4o-audio-preview",
+    GPT_5_CHAT = "gpt-5-chat-latest",
+    GPT_5_CODEX = "gpt-5-codex",
+    GPT_5_1_CHAT = "gpt-5.1-chat-latest",
     GPT_5_1_CODEX = "gpt-5.1-codex",
     GPT_5_1_CODEX_MINI = "gpt-5.1-codex-mini",
-    GPT_5_2 = "gpt-5.2",
-    GPT_5_2_CHAT = "gpt-5.2-chat",
-    GPT_5_2_CODEX = "gpt-5.2-codex",
-    GPT_5_2_PRO = "gpt-5.2-pro",
     GPT_5_1_CODEX_MAX = "gpt-5.1-codex-max",
+    GPT_5_2_CHAT = "gpt-5.2-chat-latest",
+    GPT_5_2_CODEX = "gpt-5.2-codex",
     CHATGPT_4O_LATEST = "chatgpt-4o-latest",
-    GPT_4O_AUDIO_PREVIEW = "gpt-4o-audio-preview",
     COMPUTER_USE_PREVIEW = "computer-use-preview",
     CODEX_MINI_LATEST = "codex-mini-latest"
 }
