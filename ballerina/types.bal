@@ -107,14 +107,6 @@ public enum ReasoningEffort {
     XHIGH = "xhigh"
 }
 
-# Reasoning configuration for reasoning-capable OpenAI models.
-# Applies to both the Chat Completions API and the Responses API.
-@display {label: "Reasoning Configuration"}
-public type ReasoningConfig record {|
-    # Constrains the effort spent on reasoning. Honored by both the Chat Completions and Responses APIs.
-    ReasoningEffort effort?;
-|};
-
 # Model types for OpenAI
 @display {label: "OpenAI Model Names"}
 public enum OPEN_AI_MODEL_NAMES {

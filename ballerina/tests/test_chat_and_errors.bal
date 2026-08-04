@@ -21,13 +21,13 @@ import ballerina/test;
 final ModelProvider reactProvider = check new (API_KEY, CHATGPT_4O_LATEST, SERVICE_URL, apiType = CHAT_COMPLETIONS);
 // Reasoning-capable provider over the Responses API.
 final ModelProvider reasoningProvider = check new (API_KEY, GPT_5, SERVICE_URL,
-        reasoning = {effort: "low"}, apiType = RESPONSES);
+        reasoningEffort = "low", apiType = RESPONSES);
 // Provider with temperature disabled.
 final ModelProvider noTempProvider = check new (API_KEY, GPT_4_TURBO, SERVICE_URL,
         temperature = (), apiType = CHAT_COMPLETIONS);
 // Reasoning-capable provider over the Chat Completions API.
 final ModelProvider chatReasoningProvider = check new (API_KEY, GPT_5, SERVICE_URL,
-        reasoning = {effort: "low"}, apiType = CHAT_COMPLETIONS);
+        reasoningEffort = "low", apiType = CHAT_COMPLETIONS);
 
 final ai:ChatCompletionFunctions[] weatherTool = [
     {

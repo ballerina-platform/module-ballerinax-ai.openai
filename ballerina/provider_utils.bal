@@ -228,7 +228,7 @@ isolated function handleParseResponseError(error chatResponseError) returns erro
 }
 
 isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES modelType,
-        decimal? temperature, int maxTokens, ReasoningConfig? reasoning,
+        decimal? temperature, int maxTokens, ReasoningEffort? reasoningEffort,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc) returns anydata|ai:Error {
     observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
     span.addProvider("openai");
@@ -260,11 +260,8 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
     if temperature is decimal {
         request.temperature = temperature;
     }
-    if reasoning is ReasoningConfig && supportsReasoning(modelType) {
-        ReasoningEffort? effort = reasoning.effort;
-        if effort is ReasoningEffort {
-            request.reasoning_effort = effort;
-        }
+    if reasoningEffort is ReasoningEffort && supportsReasoning(modelType) {
+        request.reasoning_effort = reasoningEffort;
     }
     span.addInputMessages(request.messages.toJson());
     chat:CreateChatCompletionResponse|error response = llmClient->/chat/completions.post(request);

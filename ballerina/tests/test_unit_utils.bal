@@ -204,44 +204,43 @@ function testSupportsReasoningIsFalseForChatVariants() {
 }
 
 @test:Config
-function testValidateReasoningConfigAcceptsSupportedEfforts() {
-    test:assertTrue(validateReasoningConfig(GPT_5, {effort: MINIMAL}) is ());
-    test:assertTrue(validateReasoningConfig(GPT_5_1, {effort: NONE}) is ());
-    test:assertTrue(validateReasoningConfig(GPT_5_2, {effort: XHIGH}) is ());
-    test:assertTrue(validateReasoningConfig(GPT_5_PRO, {effort: HIGH}) is ());
-    test:assertTrue(validateReasoningConfig(GPT_5_6_SOL, {effort: XHIGH}) is ());
-    // No reasoning configuration at all is always valid.
-    test:assertTrue(validateReasoningConfig(GPT_4O, ()) is ());
-    // A reasoning model with no explicit effort is valid.
-    test:assertTrue(validateReasoningConfig(GPT_5, {}) is ());
+function testValidateReasoningEffortAcceptsSupportedEfforts() {
+    test:assertTrue(validateReasoningEffort(GPT_5, MINIMAL) is ());
+    test:assertTrue(validateReasoningEffort(GPT_5_1, NONE) is ());
+    test:assertTrue(validateReasoningEffort(GPT_5_2, XHIGH) is ());
+    test:assertTrue(validateReasoningEffort(GPT_5_PRO, HIGH) is ());
+    test:assertTrue(validateReasoningEffort(GPT_5_6_SOL, XHIGH) is ());
+    // No reasoning effort at all is always valid.
+    test:assertTrue(validateReasoningEffort(GPT_4O, ()) is ());
+    test:assertTrue(validateReasoningEffort(GPT_5, ()) is ());
 }
 
 @test:Config
-function testValidateReasoningConfigRejectsUnsupportedEfforts() {
+function testValidateReasoningEffortRejectsUnsupportedEfforts() {
     // `none` and `xhigh` were introduced after the gpt-5 generation.
-    test:assertTrue(validateReasoningConfig(GPT_5, {effort: NONE}) is ai:Error);
-    test:assertTrue(validateReasoningConfig(GPT_5, {effort: XHIGH}) is ai:Error);
+    test:assertTrue(validateReasoningEffort(GPT_5, NONE) is ai:Error);
+    test:assertTrue(validateReasoningEffort(GPT_5, XHIGH) is ai:Error);
     // gpt-5.1 dropped `minimal` and does not accept `xhigh`.
-    test:assertTrue(validateReasoningConfig(GPT_5_1, {effort: MINIMAL}) is ai:Error);
-    test:assertTrue(validateReasoningConfig(GPT_5_1, {effort: XHIGH}) is ai:Error);
+    test:assertTrue(validateReasoningEffort(GPT_5_1, MINIMAL) is ai:Error);
+    test:assertTrue(validateReasoningEffort(GPT_5_1, XHIGH) is ai:Error);
     // gpt-5-pro only supports `high`.
-    test:assertTrue(validateReasoningConfig(GPT_5_PRO, {effort: LOW}) is ai:Error);
+    test:assertTrue(validateReasoningEffort(GPT_5_PRO, LOW) is ai:Error);
     // The `*-pro` models do not accept the lower levels.
-    test:assertTrue(validateReasoningConfig(GPT_5_5_PRO, {effort: NONE}) is ai:Error);
+    test:assertTrue(validateReasoningEffort(GPT_5_5_PRO, NONE) is ai:Error);
 }
 
 @test:Config
-function testValidateReasoningConfigRejectsNonReasoningModels() {
-    ai:Error? result = validateReasoningConfig(GPT_4O, {effort: LOW});
+function testValidateReasoningEffortRejectsNonReasoningModels() {
+    ai:Error? result = validateReasoningEffort(GPT_4O, LOW);
     if result !is ai:Error {
         test:assertFail("Expected an error for a model that does not support reasoning");
     }
-    test:assertTrue(result.message().includes("does not support the 'reasoning' configuration"), result.message());
+    test:assertTrue(result.message().includes("does not support the 'reasoningEffort' configuration"), result.message());
 }
 
 @test:Config
 function testInitFailsForUnsupportedReasoningEffort() {
-    ModelProvider|ai:Error result = new (API_KEY, GPT_5_PRO, SERVICE_URL, reasoning = {effort: LOW});
+    ModelProvider|ai:Error result = new (API_KEY, GPT_5_PRO, SERVICE_URL, reasoningEffort = LOW);
     if result !is ai:Error {
         test:assertFail("Expected initialization to fail for an unsupported reasoning effort");
     }

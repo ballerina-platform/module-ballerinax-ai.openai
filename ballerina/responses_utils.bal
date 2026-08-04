@@ -195,12 +195,12 @@ isolated function convertContentPartsForResponses(DocumentContentPart[] parts) r
 # + modelType - The model to use
 # + temperature - The sampling temperature for the response
 # + maxTokens - The maximum number of tokens to generate in the response
-# + reasoning - The reasoning configuration, applied when the model supports it
+# + reasoningEffort - The reasoning effort, applied when the model supports it
 # + prompt - The user prompt
 # + expectedResponseTypedesc - The expected response type descriptor
 # + return - The parsed response or an error
 isolated function generateLlmResponseViaResponses(responses:Client responsesClient, OPEN_AI_MODEL_NAMES modelType,
-        decimal? temperature, int maxTokens, ReasoningConfig? reasoning,
+        decimal? temperature, int maxTokens, ReasoningEffort? reasoningEffort,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc)
         returns anydata|ai:Error {
     observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
@@ -263,13 +263,8 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
         store: false
     };
 
-    if reasoning is ReasoningConfig && supportsReasoning(modelType) {
-        responses:Reasoning reasoningParam = {};
-        ReasoningEffort? effort = reasoning.effort;
-        if effort is ReasoningEffort {
-            reasoningParam.effort = effort;
-        }
-        request.reasoning = reasoningParam;
+    if reasoningEffort is ReasoningEffort && supportsReasoning(modelType) {
+        request.reasoning = {effort: reasoningEffort};
     }
 
     span.addInputMessages([inputMessage].toJson());
