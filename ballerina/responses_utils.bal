@@ -17,7 +17,7 @@
 import ballerina/ai;
 import ballerina/ai.observe;
 import ballerina/log;
-import ballerinax/openai.responses as responses;
+import ballerinax/openai.responses;
 
 # Converts ai:ChatMessage array to Responses API input items and instructions.
 #
@@ -42,6 +42,11 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
     responses:InputItem[] inputItems = [];
     string[] instructionParts = [];
     boolean supportsToolCalls = isToolCallSupported(modelType);
+    // Per-tool-name occurrence counters used only when a message carries no id of its own. Counting
+    // calls and outputs separately keeps the nth call to a given tool paired with the nth output for
+    // that tool, while still giving each call its own `call_id`.
+    map<int> callIdCounts = {};
+    map<int> outputIdCounts = {};
 
     foreach ai:ChatMessage message in messages {
         if message is ai:ChatSystemMessage {
@@ -69,7 +74,7 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
                         'type: "function_call",
                         name: tc.name,
                         arguments: (tc.arguments ?: {}).toJsonString(),
-                        call_id: tc.id ?: string `call_${tc.name}`,
+                        call_id: tc.id ?: nextToolCallId(tc.name, callIdCounts),
                         status: "completed"
                     });
                 }
@@ -82,7 +87,7 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
         } else if message is ai:ChatFunctionMessage {
             inputItems.push({
                 'type: "function_call_output",
-                call_id: message.id ?: string `call_${message.name}`,
+                call_id: message.id ?: nextToolCallId(message.name, outputIdCounts),
                 output: message?.content ?: ""
             });
         }

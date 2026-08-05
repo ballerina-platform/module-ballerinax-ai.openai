@@ -1,6 +1,6 @@
-// Copyright (c) 2025 WSO2 LLC. (http://www.wso2.org).
+// Copyright (c) 2025 WSO2 LLC (http://www.wso2.com).
 //
-// WSO2 Inc. licenses this file to you under the Apache License,
+// WSO2 LLC. licenses this file to you under the Apache License,
 // Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.
 // You may obtain a copy of the License at
@@ -16,8 +16,8 @@
 
 import ballerina/ai;
 import ballerina/test;
-import ballerinax/openai.chat as chat;
-import ballerinax/openai.responses as responses;
+import ballerinax/openai.chat;
+import ballerinax/openai.responses;
 
 // ===================================================================
 // react-utils.bal unit tests
@@ -551,6 +551,50 @@ function testConvertToResponsesInputWithParallelToolCalls() returns ai:Error? {
     responses:FunctionToolCall secondCall = <responses:FunctionToolCall>itemArr[2];
     test:assertEquals(secondCall.name, "getTime");
     test:assertEquals(secondCall.call_id, "call_time");
+}
+
+@test:Config
+function testConvertToResponsesInputGeneratesDistinctIdsForRepeatedToolWithoutIds() returns ai:Error? {
+    // When a tool call carries no id, the generated `call_id` must still be unique per call: two calls to
+    // the same tool in one turn previously collapsed onto a single id, which OpenAI rejects. Each output
+    // must line up with the call at the same occurrence index for that tool name.
+    ai:ChatMessage[] messages = [
+        <ai:ChatUserMessage>{role: "user", content: "Weather in London and Paris?"},
+        <ai:ChatAssistantMessage>{
+            role: "assistant",
+            toolCalls: [
+                {name: "getWeather", arguments: {"city": "London"}},
+                {name: "getWeather", arguments: {"city": "Paris"}}
+            ]
+        },
+        <ai:ChatFunctionMessage>{role: "function", name: "getWeather", content: "sunny"},
+        <ai:ChatFunctionMessage>{role: "function", name: "getWeather", content: "rainy"}
+    ];
+    [responses:InputParam, string?] [items, _] =
+        check convertToResponsesInput(messages, sampleTools, GPT_4O);
+    responses:InputItem[] itemArr = <responses:InputItem[]>items;
+    test:assertEquals(itemArr.length(), 5);
+
+    responses:FunctionToolCall firstCall = <responses:FunctionToolCall>itemArr[1];
+    responses:FunctionToolCall secondCall = <responses:FunctionToolCall>itemArr[2];
+    test:assertEquals(firstCall.call_id, "call_getWeather_1");
+    test:assertEquals(secondCall.call_id, "call_getWeather_2");
+    test:assertNotEquals(firstCall.call_id, secondCall.call_id);
+
+    responses:FunctionCallOutputItemParam firstOutput = <responses:FunctionCallOutputItemParam>itemArr[3];
+    responses:FunctionCallOutputItemParam secondOutput = <responses:FunctionCallOutputItemParam>itemArr[4];
+    test:assertEquals(firstOutput.call_id, firstCall.call_id);
+    test:assertEquals(secondOutput.call_id, secondCall.call_id);
+}
+
+@test:Config
+function testNextToolCallIdCountsPerName() {
+    map<int> counts = {};
+    test:assertEquals(nextToolCallId("getWeather", counts), "call_getWeather_1");
+    test:assertEquals(nextToolCallId("getWeather", counts), "call_getWeather_2");
+    // Counters are tracked per tool name, so an unrelated tool starts back at 1.
+    test:assertEquals(nextToolCallId("getTime", counts), "call_getTime_1");
+    test:assertEquals(nextToolCallId("getWeather", counts), "call_getWeather_3");
 }
 
 @test:Config
