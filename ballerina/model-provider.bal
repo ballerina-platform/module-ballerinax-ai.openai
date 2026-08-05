@@ -24,7 +24,6 @@ import ballerinax/openai.responses;
 
 const DEFAULT_OPENAI_SERVICE_URL = "https://api.openai.com/v1";
 const DEFAULT_MAX_TOKEN_COUNT = 4096;
-const DEFAULT_TEMPERATURE = 0.7d;
 
 # ModelProvider is a client class that provides an interface for interacting with OpenAI Large Language Models.
 # Supports both the Chat Completions API (default) and the Responses API, selected via the `apiType` configuration.
@@ -55,7 +54,7 @@ public isolated distinct client class ModelProvider {
             @display {label: "Model Type"} OPEN_AI_MODEL_NAMES modelType,
             @display {label: "Service URL"} string serviceUrl = DEFAULT_OPENAI_SERVICE_URL,
             @display {label: "Maximum Tokens"} int maxTokens = DEFAULT_MAX_TOKEN_COUNT,
-            @display {label: "Temperature"} decimal? temperature = DEFAULT_TEMPERATURE,
+            @display {label: "Temperature"} decimal? temperature = (),
             @display {label: "Reasoning Effort"} ReasoningEffort? reasoningEffort = (),
             @display {label: "API Type"} ApiType apiType = CHAT_COMPLETIONS,
             @display {label: "Connection Configuration"} *ConnectionConfig connectionConfig) returns ai:Error? {
