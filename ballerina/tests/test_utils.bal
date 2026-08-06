@@ -1,6 +1,6 @@
-// Copyright (c) 2025 WSO2 LLC. (http://www.wso2.org).
+// Copyright (c) 2025 WSO2 LLC (http://www.wso2.com).
 //
-// WSO2 Inc. licenses this file to you under the Apache License,
+// WSO2 LLC. licenses this file to you under the Apache License,
 // Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.
 // You may obtain a copy of the License at
@@ -242,6 +242,10 @@ isolated function getTheMockLLMResult(string message) returns string {
         return "{\"result\": \"This is a sample image description.\"}";
     }
 
+    if message.startsWith("Please describe the audio content. ") {
+        return "{\"result\": \"This is a sample audio description.\"}";
+    }
+
     if message.startsWith("Name a random world class cricketer in India") {
         return "{\"result\": {\"name\": \"Sanga\"}}";
     }
@@ -265,7 +269,42 @@ isolated function getTheMockLLMResult(string message) returns string {
     return "INVALID";
 }
 
+isolated function getParallelToolCallResponse() returns chat:CreateChatCompletionResponse => {
+    id: "test-parallel-id",
+    'object: "chat.completion",
+    created: 1234567890,
+    model: "gpt-4o",
+    choices: [
+        {
+            finish_reason: "tool_calls",
+            index: 0,
+            logprobs: (),
+            message: {
+                content: (),
+                refusal: (),
+                role: "assistant",
+                tool_calls: [
+                    {
+                        id: "call_weather",
+                        'type: "function",
+                        'function: {name: "getWeather", arguments: "{\"city\": \"London\"}"}
+                    },
+                    {
+                        id: "call_time",
+                        'type: "function",
+                        'function: {name: "getTime", arguments: "{\"city\": \"London\"}"}
+                    }
+                ]
+            }
+        }
+    ]
+};
+
 isolated function getTestServiceResponse(string content) returns chat:CreateChatCompletionResponse =>
+    getGenerateResultToolResponse(getTheMockLLMResult(content));
+
+// Builds a getResults tool-call response for the generate() path with the given raw arguments.
+isolated function getGenerateResultToolResponse(string arguments) returns chat:CreateChatCompletionResponse =>
     {
     id: "test-id",
     'object: "chat.completion",
@@ -286,13 +325,14 @@ isolated function getTestServiceResponse(string content) returns chat:CreateChat
                         'type: "function",
                         'function: {
                             name: GET_RESULTS_TOOL,
-                            arguments: getTheMockLLMResult(content)
+                            arguments: arguments
                         }
                     }
                 ]
             }
         }
-    ]
+    ],
+    usage: {prompt_tokens: 42, completion_tokens: 18, total_tokens: 60}
 };
 
 isolated function getExpectedContentParts(string message) returns map<anydata>[] {

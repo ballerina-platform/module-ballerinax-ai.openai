@@ -1,6 +1,6 @@
-// Copyright (c) 2025 WSO2 LLC. (http://www.wso2.org).
+// Copyright (c) 2025 WSO2 LLC (http://www.wso2.com).
 //
-// WSO2 Inc. licenses this file to you under the Apache License,
+// WSO2 LLC. licenses this file to you under the Apache License,
 // Version 2.0 (the "License"); you may not use this file except
 // in compliance with the License.
 // You may obtain a copy of the License at
@@ -24,7 +24,8 @@ const API_KEY = "not-a-real-api-key";
 const ERROR_MESSAGE = "Error occurred while attempting to parse the response from the LLM as the expected type. Retrying and/or validating the prompt could fix the response.";
 const RUNTIME_SCHEMA_NOT_SUPPORTED_ERROR_MESSAGE = "Runtime schema generation is not yet supported";
 
-final ModelProvider provider = check new (API_KEY, GPT_4O, SERVICE_URL);
+final ModelProvider provider = check new (API_KEY, GPT_4_TURBO, SERVICE_URL, apiType = CHAT_COMPLETIONS);
+final ModelProvider responsesProvider = check new (API_KEY, GPT_4O, SERVICE_URL, apiType = RESPONSES);
 
 @test:Config
 function testGenerateMethodWithBasicReturnType() returns ai:Error? {
@@ -177,9 +178,8 @@ function testGenerateMethodWithAudioDocument() returns ai:Error? {
         }
     };
 
-    string[]|error descriptions = provider->generate(`What is the content in this document. ${aud}.`);
-    test:assertTrue(descriptions is error);
-    test:assertTrue((<error>descriptions).message().includes("Only text and image documents are supported."));
+    string|error description = provider->generate(`Please describe the audio content. ${aud}.`);
+    test:assertEquals(description, "This is a sample audio description.");
 }
 
 @test:Config
@@ -190,7 +190,7 @@ function testGenerateMethodWithUnsupportedDocument() returns ai:Error? {
 
     string[]|error descriptions = provider->generate(`What is the content in this document. ${doc}.`);
     test:assertTrue(descriptions is error);
-    test:assertTrue((<error>descriptions).message().includes("Only text and image documents are supported."));
+    test:assertTrue((<error>descriptions).message().includes("Only text, image and audio documents are supported."));
 }
 
 @test:Config
@@ -329,7 +329,163 @@ function testGenerateMethodWithTextChunk() returns error? {
     int rating = check provider->generate(`How would you rate this text chunk content out of ${maxScore}. ${chunk}.`);
     test:assertEquals(rating, 4);
 
-    ReviewArray result = check provider->generate(`How would you rate these text chunks out of ${maxScore}. ${chunks}. Thank you!`);
-    Review r = check review.fromJsonStringWithType();
+    ReviewArray chunkResult = check provider->generate(`How would you rate these text chunks out of ${maxScore}. ${chunks}. Thank you!`);
+    Review expectedReview = check review.fromJsonStringWithType();
+    test:assertEquals(chunkResult, [expectedReview, expectedReview]);
+}
+
+// ===== Responses API: generate() tests =====
+
+@test:Config
+function testResponsesGenerateMethodWithBasicReturnType() returns ai:Error? {
+    int|error rating = responsesProvider->generate(`Rate this blog out of 10.
+        Title: ${blog1.title}
+        Content: ${blog1.content}`);
+    test:assertEquals(rating, 4);
+}
+
+@test:Config
+function testResponsesGenerateMethodWithBasicArrayReturnType() returns ai:Error? {
+    int[]|error rating = responsesProvider->generate(`Evaluate this blogs out of 10.
+        Title: ${blog1.title}
+        Content: ${blog1.content}
+
+        Title: ${blog1.title}
+        Content: ${blog1.content}`);
+    test:assertEquals(rating, [9, 1]);
+}
+
+@test:Config
+function testResponsesGenerateMethodWithRecordReturnType() returns error? {
+    Review|error result = responsesProvider->generate(`Please rate this blog out of ${"10"}.
+        Title: ${blog2.title}
+        Content: ${blog2.content}`);
+    test:assertEquals(result, check review.fromJsonStringWithType(Review));
+}
+
+@test:Config
+function testResponsesGenerateMethodWithTextDocument() returns ai:Error? {
+    ai:TextDocument blog = {
+        content: string `Title: ${blog1.title} Content: ${blog1.content}`
+    };
+    int maxScore = 10;
+
+    int|error rating = responsesProvider->generate(`How would you rate this ${"blog"} content out of ${maxScore}. ${blog}.`);
+    test:assertEquals(rating, 4);
+}
+
+@test:Config
+function testResponsesGenerateMethodWithImageDocumentWithUrl() returns ai:Error? {
+    ai:ImageDocument img = {
+        content: "https://example.com/image.jpg",
+        metadata: {
+            mimeType: "image/jpg"
+        }
+    };
+
+    string|error description = responsesProvider->generate(`Describe the image. ${img}.`);
+    test:assertEquals(description, "This is a sample image description.");
+}
+
+@test:Config
+function testResponsesGenerateMethodWithRecordArrayReturnType() returns error? {
+    int maxScore = 10;
+    Review r = check review.fromJsonStringWithType(Review);
+
+    ReviewArray|error result = responsesProvider->generate(`Please rate this blogs out of ${maxScore}.
+        [{Title: ${blog1.title}, Content: ${blog1.content}}, {Title: ${blog2.title}, Content: ${blog2.content}}]`);
     test:assertEquals(result, [r, r]);
+}
+
+@test:Config
+function testResponsesGenerateMethodWithStringUnionNull() returns error? {
+    string? result = check responsesProvider->generate(`Give me a random joke`);
+    test:assertTrue(result is string);
+}
+
+// ===== Responses API: chat() tests =====
+
+@test:Config
+function testResponsesChatWithSimpleMessage() returns ai:Error? {
+    ai:ChatUserMessage userMsg = {role: "user", content: "Hello, how are you?"};
+    ai:ChatAssistantMessage result = check responsesProvider->chat(userMsg, []);
+    test:assertTrue(result.content is string);
+    test:assertEquals(result.content, "This is a mock response for: Hello, how are you?");
+}
+
+@test:Config
+function testResponsesChatWithMessageArray() returns ai:Error? {
+    ai:ChatMessage[] messages = [
+        <ai:ChatSystemMessage>{role: "system", content: "You are a helpful assistant."},
+        <ai:ChatUserMessage>{role: "user", content: "Hello, how are you?"}
+    ];
+    ai:ChatAssistantMessage result = check responsesProvider->chat(messages, []);
+    test:assertTrue(result.content is string);
+    test:assertEquals(result.content, "This is a mock response for: Hello, how are you?");
+}
+
+@test:Config
+function testResponsesChatWithTools() returns ai:Error? {
+    ai:ChatUserMessage userMsg = {role: "user", content: "What is the weather in London?"};
+    ai:ChatCompletionFunctions[] tools = [
+        {
+            name: "get_weather",
+            description: "Get the weather for a city",
+            parameters: {
+                "type": "object",
+                "properties": {
+                    "city": {"type": "string"}
+                },
+                "required": ["city"]
+            }
+        }
+    ];
+    ai:ChatAssistantMessage result = check responsesProvider->chat(userMsg, tools);
+    ai:FunctionCall[]? toolCalls = result.toolCalls;
+    test:assertTrue(toolCalls is ai:FunctionCall[]);
+    test:assertEquals((<ai:FunctionCall[]>toolCalls).length(), 1);
+    test:assertEquals((<ai:FunctionCall[]>toolCalls)[0].name, "get_weather");
+    test:assertEquals((<ai:FunctionCall[]>toolCalls)[0].arguments, {"city": "London"});
+}
+
+// ===== Chat Completions API: chat() tests =====
+
+@test:Config
+function testChatCompletionsChatWithSimpleMessage() returns ai:Error? {
+    ai:ChatUserMessage userMsg = {role: "user", content: "Hello, how are you?"};
+    ai:ChatAssistantMessage result = check provider->chat(userMsg, []);
+    test:assertTrue(result.content is string);
+    test:assertEquals(result.content, "This is a mock response for: Hello, how are you?");
+}
+
+@test:Config
+function testParallelToolCalling() returns ai:Error? {
+    ai:ChatCompletionFunctions[] tools = [
+        {
+            name: "getWeather",
+            description: "Get weather for a city",
+            parameters: {"type": "object", "properties": {"city": {"type": "string"}}}
+        },
+        {
+            name: "getTime",
+            description: "Get current time for a city",
+            parameters: {"type": "object", "properties": {"city": {"type": "string"}}}
+        }
+    ];
+
+    ai:ChatAssistantMessage result = check provider->chat(
+        [{role: ai:USER, content: "TRIGGER_PARALLEL_TOOL_CALLS: weather and time in London?"}],
+        tools
+    );
+
+    ai:FunctionCall[]? toolCalls = result.toolCalls;
+    test:assertTrue(toolCalls is ai:FunctionCall[]);
+    ai:FunctionCall[] functionCalls = <ai:FunctionCall[]>toolCalls;
+    test:assertEquals(functionCalls.length(), 2);
+    test:assertEquals(functionCalls[0].id, "call_weather");
+    test:assertEquals(functionCalls[0].name, "getWeather");
+    test:assertEquals(functionCalls[0].arguments, {"city": "London"});
+    test:assertEquals(functionCalls[1].id, "call_time");
+    test:assertEquals(functionCalls[1].name, "getTime");
+    test:assertEquals(functionCalls[1].arguments, {"city": "London"});
 }
