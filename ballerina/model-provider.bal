@@ -137,9 +137,18 @@ public isolated distinct client class ModelProvider {
             if responsesApiClient is error {
                 return error ai:Error("Failed to initialize Responses Client for Responses API", responsesApiClient);
             }
+            // Raw HTTP client for streaming (SSE) against the /responses endpoint.
+            http:Client|error streamClient = new (serviceUrl, {
+                auth: {token: apiKey},
+                httpVersion: connectionConfig.httpVersion,
+                timeout: connectionConfig.timeout
+            });
+            if streamClient is error {
+                return error ai:Error("Failed to initialize the OpenAI streaming client", streamClient);
+            }
             self.responsesClient = responsesApiClient;
             self.llmClient = ();
-            self.streamClient = ();
+            self.streamClient = streamClient;
         }
     }
 
@@ -256,7 +265,7 @@ public isolated distinct client class ModelProvider {
     }
 
     # Sends a streaming chat request to the OpenAI model with the given messages and tools.
-    # Streaming is supported only for the Chat Completions API (`apiType = CHAT_COMPLETIONS`).
+    # Streams via the Chat Completions API or the Responses API, selected by `apiType`.
     #
     # + messages - List of chat messages or a single user message
     # + tools - Tool definitions to be used for the tool call
@@ -265,10 +274,12 @@ public isolated distinct client class ModelProvider {
     remote function chatStream(ai:ChatMessage[]|ai:ChatUserMessage messages,
             ai:ChatCompletionFunctions[] tools = [], string? stop = ())
             returns stream<ai:ChatCompletionChunk, ai:Error?>|ai:Error {
+        if self.apiType == RESPONSES {
+            return self.chatStreamViaResponses(messages, tools, stop);
+        }
         http:Client? streamClient = self.streamClient;
         if streamClient is () {
-            return error ai:Error("Streaming is only supported for the Chat Completions API. " +
-                    "Initialize the provider with 'apiType = CHAT_COMPLETIONS'.");
+            return error ai:Error("Streaming client is not initialized.");
         }
         chat:CreateChatCompletionRequest request = {
             max_completion_tokens: self.maxTokens,
@@ -301,6 +312,61 @@ public isolated distinct client class ModelProvider {
             return error ai:Error("Failed to open the SSE stream from the model", sseStream);
         }
         stream<ai:ChatCompletionChunk, ai:Error?> chunkStream = new (new OpenAiChunkIterator(sseStream));
+        return chunkStream;
+    }
+
+    // Streaming via the Responses API: builds the /responses request with stream:true,
+    // opens the SSE stream, and maps the Responses events onto ai:ChatCompletionChunk.
+    private function chatStreamViaResponses(ai:ChatMessage[]|ai:ChatUserMessage messages,
+            ai:ChatCompletionFunctions[] tools, string? stop)
+            returns stream<ai:ChatCompletionChunk, ai:Error?>|ai:Error {
+        http:Client? streamClient = self.streamClient;
+        if streamClient is () {
+            return error ai:Error("Streaming client is not initialized.");
+        }
+        if stop is string {
+            return error ai:Error("The 'stop' parameter is not supported by the Responses API. " +
+                    "Use 'apiType = CHAT_COMPLETIONS' if a stop sequence is required.");
+        }
+        [responses:InputParam, string?] [inputItems, instructions] =
+            check convertToResponsesInput(messages, tools, self.modelType);
+        responses:CreateResponse request = {
+            model: self.modelType,
+            input: inputItems,
+            max_output_tokens: self.maxTokens,
+            store: false,
+            'stream: true
+        };
+        decimal? temp = self.temperature;
+        if temp is decimal {
+            request.temperature = temp;
+        }
+        if instructions is string {
+            request.instructions = instructions;
+        }
+        if tools.length() > 0 {
+            responses:Tool[] allTools = [];
+            foreach responses:FunctionTool ft in convertToResponsesTools(tools) {
+                allTools.push(ft);
+            }
+            request.tools = allTools;
+        }
+        ReasoningEffort? reasoningEffort = self.reasoning;
+        if reasoningEffort is ReasoningEffort && supportsReasoning(self.modelType) {
+            // Request a reasoning summary so the reasoning_summary_text.delta events
+            // stream; without this the model's thinking is not surfaced.
+            request.reasoning = {effort: reasoningEffort, summary: "auto"};
+        }
+
+        http:Response|error response = streamClient->post("/responses", request);
+        if response is error {
+            return error ai:LlmConnectionError("Error while connecting to the model for streaming", response);
+        }
+        stream<http:SseEvent, error?>|error sseStream = response.getSseEventStream();
+        if sseStream is error {
+            return error ai:Error("Failed to open the SSE stream from the model", sseStream);
+        }
+        stream<ai:ChatCompletionChunk, ai:Error?> chunkStream = new (new ResponsesChunkIterator(sseStream));
         return chunkStream;
     }
 
@@ -806,6 +872,65 @@ class OpenAiChunkIterator {
                 continue;
             }
             return {value: toAiChunk(wireChunk)};
+        }
+    }
+
+    public isolated function close() returns ai:Error? {
+        error? result = self.sseStream.close();
+        if result is error {
+            return error ai:Error("Error while closing the model stream", result);
+        }
+        return ();
+    }
+}
+
+# Iterator that converts the Responses API SSE stream into a stream of normalized
+# `ai:ChatCompletionChunk` values. Text deltas, tool-call starts
+# (`response.output_item.added`) and argument fragments
+# (`response.function_call_arguments.delta`) are each mapped to a chunk;
+# lifecycle/other events are skipped, `[DONE]` ends the stream.
+class ResponsesChunkIterator {
+    private stream<http:SseEvent, error?> sseStream;
+
+    isolated function init(stream<http:SseEvent, error?> sseStream) {
+        self.sseStream = sseStream;
+    }
+
+    public isolated function next() returns record {|ai:ChatCompletionChunk value;|}|ai:Error? {
+        while true {
+            record {|http:SseEvent value;|}|error? event = self.sseStream.next();
+            if event is () {
+                return ();
+            }
+            if event is error {
+                return error ai:Error("Error while reading the model stream", event);
+            }
+            string? data = event.value.data;
+            if data is () {
+                continue;
+            }
+            string trimmedData = data.trim();
+            if trimmedData == "" {
+                continue;
+            }
+            if trimmedData == "[DONE]" {
+                return ();
+            }
+            json|error payload = trimmedData.fromJsonString();
+            if payload is error {
+                continue;
+            }
+            ResponsesStreamEvent|error ev = payload.cloneWithType();
+            if ev is error {
+                continue;
+            }
+            if ev.'type == "error" {
+                return error ai:Error(ev.message ?: "Error event received from the Responses stream");
+            }
+            ai:ChatCompletionChunk? chunk = responsesEventToChunk(ev);
+            if chunk is ai:ChatCompletionChunk {
+                return {value: chunk};
+            }
         }
     }
 
