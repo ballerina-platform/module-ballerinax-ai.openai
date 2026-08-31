@@ -42,11 +42,9 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
     responses:InputItem[] inputItems = [];
     string[] instructionParts = [];
     boolean supportsToolCalls = isToolCallSupported(modelType);
-    // Per-tool-name occurrence counters used only when a message carries no id of its own. Counting
-    // calls and outputs separately keeps the nth call to a given tool paired with the nth output for
-    // that tool, while still giving each call its own `call_id`.
-    map<int> callIdCounts = {};
-    map<int> outputIdCounts = {};
+    // Pairs each tool result with the assistant tool call it answers when the caller's
+    // messages carry no ids of their own.
+    ToolCallIdRegistry registry = {};
 
     foreach ai:ChatMessage message in messages {
         if message is ai:ChatSystemMessage {
@@ -63,6 +61,17 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
         } else if message is ai:ChatAssistantMessage {
             ai:FunctionCall[]? toolCalls = message.toolCalls;
             if toolCalls is ai:FunctionCall[] && toolCalls.length() > 0 {
+                if !supportsToolCalls {
+                    // ReAct path: the model is driven by the prompt folded into `instructions` and
+                    // the request declares no tools, so a `function_call` item would refer to a tool
+                    // the request never defined. Replay the call as the fenced JSON the prompt asks
+                    // for, exactly as the Chat Completions path does.
+                    inputItems.push(<responses:EasyInputMessage>{
+                        role: ai:ASSISTANT,
+                        content: formatFunctionCallToJsonWithFences(toolCalls[0])
+                    });
+                    continue;
+                }
                 // If the assistant message also has text content, emit it first
                 string? content = message?.content;
                 if content is string {
@@ -74,20 +83,30 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
                         'type: "function_call",
                         name: tc.name,
                         arguments: (tc.arguments ?: {}).toJsonString(),
-                        call_id: tc.id ?: nextToolCallId(tc.name, callIdCounts),
+                        call_id: issueToolCallId(tc.name, tc.id, registry),
                         status: "completed"
                     });
                 }
             } else {
+                string content = message?.content ?: "";
                 inputItems.push(<responses:EasyInputMessage>{
                     role: ai:ASSISTANT,
-                    content: message?.content ?: ""
+                    content: supportsToolCalls ? content : formatFinalAnswerToJsonWithFences(content)
                 });
             }
         } else if message is ai:ChatFunctionMessage {
+            if !supportsToolCalls {
+                // ReAct path: with no `function_call` item to answer, the observation goes back as
+                // a plain user turn, which is what the ReAct prompt tells the model to expect.
+                inputItems.push(<responses:EasyInputMessage>{
+                    role: ai:USER,
+                    content: message?.content ?: ""
+                });
+                continue;
+            }
             inputItems.push({
                 'type: "function_call_output",
-                call_id: message.id ?: nextToolCallId(message.name, outputIdCounts),
+                call_id: claimToolCallId(message.name, message.id, registry),
                 output: message?.content ?: ""
             });
         }
@@ -97,6 +116,46 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
         ? string:'join("\n\n", ...instructionParts)
         : ();
     return [inputItems, instructions];
+}
+
+# Maps a non-`completed` Responses API status onto the error the caller should see.
+#
+# The Responses API answers 200 for a generation that failed, was cancelled, or ran out of
+# output tokens, so the status has to be inspected before the output is read. Otherwise a
+# truncated generation - which is easy to hit, since reasoning tokens count against
+# `max_output_tokens` - is reported as if the model simply had nothing relevant to say.
+#
+# + response - The Responses API response
+# + return - The error for a non-completed status, or `()` when the response completed
+isolated function checkResponseStatus(responses:Response response) returns ai:Error? {
+    string? status = response?.status;
+    if status is () || status == "completed" {
+        return ();
+    }
+    if status == "failed" {
+        string errorMsg = "Response generation failed";
+        anydata responseError = response.'error;
+        if responseError != () {
+            errorMsg = responseError.toString();
+        }
+        return error ai:LlmConnectionError(errorMsg);
+    }
+    if status == "incomplete" {
+        string errorMsg = "Response generation incomplete";
+        anydata details = response.incomplete_details;
+        if details != () {
+            errorMsg = string `Response incomplete: ${details.toString()}`;
+        }
+        return error ai:LlmInvalidResponseError(errorMsg);
+    }
+    if status == "cancelled" {
+        return error ai:LlmConnectionError("Response generation was cancelled");
+    }
+    if status == "in_progress" || status == "queued" {
+        return error ai:LlmConnectionError(
+            string `Response is still ${status}; use background mode with polling to handle async responses`);
+    }
+    return ();
 }
 
 # Converts ai:ChatCompletionFunctions to Responses API flat function tool format.
@@ -261,12 +320,17 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
         input: inputMessage,
         tools: [getResultsTool],
         tool_choice: toolChoice,
-        temperature: temperature,
         max_output_tokens: maxTokens,
         // `store` defaults to `true` in the connector, which would retain the prompt and the
         // generated value at OpenAI for 30 days. Match `chatViaResponses` and keep it off.
         store: false
     };
+
+    // Only send `temperature` when the caller set one: the field is nullable, so assigning
+    // it unconditionally puts an explicit `"temperature": null` on the wire.
+    if temperature is decimal {
+        request.temperature = temperature;
+    }
 
     if reasoningEffort is ReasoningEffort && supportsReasoning(modelType) {
         request.reasoning = {effort: reasoningEffort};
@@ -279,6 +343,13 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
         ai:Error err = error("LLM call failed: " + response.message(), detail = response.detail(), cause = response.cause());
         span.close(err);
         return err;
+    }
+
+    // Handle non-completed statuses, as `chatViaResponses` does
+    ai:Error? statusError = checkResponseStatus(response);
+    if statusError is ai:Error {
+        span.close(statusError);
+        return statusError;
     }
 
     // Record observability

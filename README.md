@@ -8,6 +8,40 @@
 
 This module provides a generic API for connecting with OpenAI's LLM chat completion models.
 
+It talks to either of OpenAI's two APIs, chosen with the `apiType` initialization parameter:
+`CHAT_COMPLETIONS` (the default) or `RESPONSES`. Both support the same operations - `chat` and
+`generate` for a complete answer, and `chatStream` and `generateStream` to receive the answer as
+it is produced.
+
+```ballerina
+import ballerina/ai;
+import ballerina/io;
+import ballerinax/ai.openai;
+
+configurable string apiKey = ?;
+
+public function main() returns error? {
+    ai:ModelProvider model = check new openai:ModelProvider(apiKey, openai:GPT_4O);
+
+    // The whole answer, once it is ready.
+    string answer = check model->generate(`Explain Server-Sent Events in a sentence.`);
+
+    // The same answer, a fragment at a time.
+    stream<string, ai:Error?> fragments = check model->generateStream(
+            `Explain Server-Sent Events in a sentence.`);
+    check from string fragment in fragments
+        do {
+            io:print(fragment);
+        };
+}
+```
+
+`chatStream` gives the raw chunks instead: each `ai:ChatCompletionChunk` carries text, reasoning
+and tool-call fragments, and the last one carries the finish reason and the token usage. Tool-call
+fragments are correlated by `index`, and the numbering is the same whichever `apiType` is in use.
+`generateStream` supports only `string` - a partial generation is a valid value only for `string`,
+so any other expected type returns an error; use `generate` for structured output.
+
 ## Issues and projects
 
 Issues and Projects tabs are disabled for this repository as this is part of the Ballerina Library. To report bugs, request new features, start new discussions, view project boards, etc., go to the [Ballerina Library parent repository](https://github.com/ballerina-platform/ballerina-standard-library).

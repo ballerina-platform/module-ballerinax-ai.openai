@@ -8,7 +8,9 @@ The OpenAI connector offers APIs for connecting with OpenAI Large Language Model
 
 - Connect and interact with OpenAI Large Language Models (LLMs)
 - Support for GPT-4o, GPT-4, GPT-3.5, and other advanced models
+- A choice of the Chat Completions API or the Responses API, selected with `apiType`
 - Efficient handling of conversational prompts and completions
+- Streaming responses, so the answer can be shown as it is produced
 - Secure communication with API key authentication
 
 ## Prerequisites
@@ -50,3 +52,22 @@ ai:ChatAssistantMessage response = check openAiModel->chat(chatMessages, tools =
 
 chatMessages.push(response);
 ```
+
+### Step 5: Stream the response
+
+To show the answer as it is produced rather than waiting for all of it, use `generateStream` for
+the generated text, or `chatStream` for the raw chunks:
+
+```ballerina
+stream<string, ai:Error?> fragments = check openAiModel->generateStream(`Tell me about Ballerina`);
+check from string fragment in fragments
+    do {
+        io:print(fragment);
+    };
+```
+
+Each `ai:ChatCompletionChunk` from `chatStream` carries text, reasoning and tool-call fragments,
+and the last one carries the finish reason and the token usage. Tool-call fragments are correlated
+by `index`, numbered the same way whichever `apiType` is in use. `generateStream` supports only
+`string`, since a partial generation is a valid value only for `string`; use `generate` for
+structured output.

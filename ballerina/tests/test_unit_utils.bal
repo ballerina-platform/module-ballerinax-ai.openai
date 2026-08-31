@@ -588,13 +588,53 @@ function testConvertToResponsesInputGeneratesDistinctIdsForRepeatedToolWithoutId
 }
 
 @test:Config
-function testNextToolCallIdCountsPerName() {
-    map<int> counts = {};
-    test:assertEquals(nextToolCallId("getWeather", counts), "call_getWeather_1");
-    test:assertEquals(nextToolCallId("getWeather", counts), "call_getWeather_2");
+function testSynthesizedToolCallIdCountsPerName() {
+    ToolCallIdRegistry registry = {};
+    test:assertEquals(issueToolCallId("getWeather", (), registry), "call_getWeather_1");
+    test:assertEquals(issueToolCallId("getWeather", (), registry), "call_getWeather_2");
     // Counters are tracked per tool name, so an unrelated tool starts back at 1.
-    test:assertEquals(nextToolCallId("getTime", counts), "call_getTime_1");
-    test:assertEquals(nextToolCallId("getWeather", counts), "call_getWeather_3");
+    test:assertEquals(issueToolCallId("getTime", (), registry), "call_getTime_1");
+    test:assertEquals(issueToolCallId("getWeather", (), registry), "call_getWeather_3");
+}
+
+@test:Config
+function testToolResultClaimsTheIdOfTheCallItAnswers() {
+    ToolCallIdRegistry registry = {};
+    // The call carries a real id and the result does not: the result must still answer that
+    // id, not a separately synthesized one.
+    string issued = issueToolCallId("getWeather", "call_abc123", registry);
+    test:assertEquals(issued, "call_abc123");
+    test:assertEquals(claimToolCallId("getWeather", (), registry), "call_abc123");
+}
+
+@test:Config
+function testToolResultsClaimIdsInOrderPerName() {
+    ToolCallIdRegistry registry = {};
+    string first = issueToolCallId("getWeather", "call_real", registry);
+    string second = issueToolCallId("getWeather", (), registry);
+    string other = issueToolCallId("getTime", (), registry);
+    test:assertEquals(second, "call_getWeather_1");
+    test:assertEquals(claimToolCallId("getWeather", (), registry), first);
+    test:assertEquals(claimToolCallId("getWeather", (), registry), second);
+    test:assertEquals(claimToolCallId("getTime", (), registry), other);
+}
+
+@test:Config
+function testToolResultWithoutAMatchingCallGetsAUniqueId() {
+    ToolCallIdRegistry registry = {};
+    test:assertEquals(claimToolCallId("getWeather", (), registry), "call_getWeather_1");
+    test:assertEquals(claimToolCallId("getWeather", (), registry), "call_getWeather_2");
+}
+
+@test:Config
+function testToolResultWithItsOwnIdKeepsThePointerInStep() {
+    ToolCallIdRegistry registry = {};
+    string first = issueToolCallId("getWeather", (), registry);
+    string second = issueToolCallId("getWeather", (), registry);
+    // The first result names the call it answers; the second, with no id of its own, must
+    // then pair with the *second* call rather than re-claiming the first.
+    test:assertEquals(claimToolCallId("getWeather", first, registry), first);
+    test:assertEquals(claimToolCallId("getWeather", (), registry), second);
 }
 
 @test:Config
