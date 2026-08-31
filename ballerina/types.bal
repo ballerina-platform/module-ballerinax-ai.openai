@@ -198,15 +198,20 @@ type LlmChatResponse record {|
 
 # A streamed chunk of a chat completion response, as part of a Server-Sent Events
 # stream from the /chat/completions endpoint (object "chat.completion.chunk").
+#
+# Only `choices` is required. OpenAI itself sends the metadata fields on every chunk, but
+# OpenAI-compatible gateways routinely omit some of them, and a chunk that fails to bind is
+# now reported as an error rather than skipped - so anything the mapping does not actually
+# need is optional, and a bind failure means a genuinely unexpected shape.
 type CreateChatCompletionStreamResponse record {
     # Unique identifier for the chat completion; the same across every chunk
-    string id;
+    string id?;
     # Object type, always "chat.completion.chunk"
-    string 'object;
+    string 'object?;
     # Unix timestamp (seconds) of creation; the same across every chunk
-    int created;
+    int created?;
     # The model used to generate the completion
-    string model;
+    string model?;
     # A list of chat completion choices; can hold more than one when `n` > 1,
     # or be empty for the final usage-only chunk
     ChatCompletionStreamChoice[] choices;
@@ -443,7 +448,15 @@ isolated function toAiChunk(CreateChatCompletionStreamResponse w) returns ai:Cha
         choices.push({index: c.index, delta, finishReason: mapFinishReason(c.finish_reason)});
     }
 
-    ai:ChatCompletionChunk chunk = {id: w.id, model: w.model, choices};
+    ai:ChatCompletionChunk chunk = {choices};
+    string? id = w?.id;
+    if id is string {
+        chunk.id = id;
+    }
+    string? model = w?.model;
+    if model is string {
+        chunk.model = model;
+    }
     CompletionUsage? usage = w.usage;
     if usage is CompletionUsage {
         chunk.usage = {
@@ -542,6 +555,24 @@ type ResponsesEventResponse record {
     string? status = ();
     # Billing/rate-limit usage, present on the terminal event
     ResponsesEventUsage? usage = ();
+    # Failure detail, present on "response.failed"
+    ResponsesEventError? 'error = ();
+    # Why the response stopped short, present on "response.incomplete"
+    ResponsesEventIncompleteDetails? incomplete_details = ();
+};
+
+# The failure detail carried by a "response.failed" event.
+type ResponsesEventError record {
+    # Machine-readable failure code
+    string? code = ();
+    # Human-readable failure message
+    string? message = ();
+};
+
+# The reason a response stopped short, carried by a "response.incomplete" event.
+type ResponsesEventIncompleteDetails record {
+    # Why the response is incomplete ("max_output_tokens", "content_filter", ...)
+    string? reason = ();
 };
 
 # Token usage carried by the terminal Responses lifecycle event.
@@ -554,15 +585,25 @@ type ResponsesEventUsage record {
     int? total_tokens = ();
 };
 
+# Mutable state carried across one Responses stream while its events are mapped onto chunks.
+type ResponsesStreamState record {|
+    # Dense, 0-based tool-call index for each Responses `output_index` that started a
+    # function call
+    map<int> toolCallIndices = {};
+    # Number of tool calls started so far; also the next dense index to hand out
+    int toolCallCount = 0;
+|};
+
 # Maps a single Responses API stream event onto an `ai:ChatCompletionChunk`, or
 # `()` for lifecycle/other events that carry no answer content. Text deltas,
 # tool-call starts (`output_item.added`) and argument fragments
-# (`function_call_arguments.delta`) each map to one chunk. The `output_index`
-# becomes the tool-call `index` so fragments correlate across events.
+# (`function_call_arguments.delta`) each map to one chunk.
 #
 # + ev - The parsed Responses stream event
+# + state - Per-stream state, updated in place as tool calls are seen
 # + return - The normalized chunk, or `()` to skip the event
-isolated function responsesEventToChunk(ResponsesStreamEvent ev) returns ai:ChatCompletionChunk? {
+isolated function responsesEventToChunk(ResponsesStreamEvent ev, ResponsesStreamState state)
+        returns ai:ChatCompletionChunk? {
     match ev.'type {
         "response.output_text.delta" => {
             string? delta = ev.delta;
@@ -579,7 +620,7 @@ isolated function responsesEventToChunk(ResponsesStreamEvent ev) returns ai:Chat
         "response.output_item.added" => {
             ResponsesEventItem? item = ev.item;
             if item is ResponsesEventItem && item.'type == "function_call" {
-                ai:ToolCallChunk toolCall = {index: ev.output_index ?: 0};
+                ai:ToolCallChunk toolCall = {index: nextToolCallIndex(ev.output_index, state)};
                 string? callId = item.call_id;
                 if callId is string {
                     toolCall.id = callId;
@@ -594,30 +635,60 @@ isolated function responsesEventToChunk(ResponsesStreamEvent ev) returns ai:Chat
         "response.function_call_arguments.delta" => {
             string? delta = ev.delta;
             if delta is string {
-                ai:ToolCallChunk toolCall = {index: ev.output_index ?: 0, 'function: {arguments: delta}};
+                ai:ToolCallChunk toolCall = {
+                    index: nextToolCallIndex(ev.output_index, state),
+                    'function: {arguments: delta}
+                };
                 return {choices: [{index: 0, delta: {toolCalls: [toolCall]}}]};
             }
         }
-        "response.completed"|"response.incomplete"|"response.failed" => {
-            return responsesFinalChunk(ev);
+        "response.completed"|"response.incomplete" => {
+            return responsesFinalChunk(ev, state);
         }
     }
     return ();
 }
 
+# Resolves the Responses `output_index` of a function call onto the dense, 0-based
+# tool-call index that `ai:ToolCallChunk.index` is defined to carry.
+#
+# The Responses API numbers *output items*, so reasoning and message items consume
+# indices too and the first tool call of a reasoning model can arrive as index 3.
+# `ai:ToolCallChunk.index` is the index used to accumulate fragments of the same call,
+# and the Chat Completions path produces a dense 0-based one - a consumer keying an
+# array by it must see the same numbering on both APIs. Fragments of one call share an
+# `output_index`, so the first sighting allocates and the rest look up.
+#
+# + outputIndex - The `output_index` from the event, if any
+# + state - Per-stream state, updated in place when a new index is allocated
+# + return - The dense tool-call index
+isolated function nextToolCallIndex(int? outputIndex, ResponsesStreamState state) returns int {
+    string key = (outputIndex ?: 0).toString();
+    int? existing = state.toolCallIndices[key];
+    if existing is int {
+        return existing;
+    }
+    int allocated = state.toolCallCount;
+    state.toolCallIndices[key] = allocated;
+    state.toolCallCount = allocated + 1;
+    return allocated;
+}
+
 # Builds the terminal `ai:ChatCompletionChunk` for a Responses lifecycle event,
-# carrying the finish reason and (when present) token usage. The Responses API
-# has no `tool_calls` finish reason, so completed maps to `stop`; the consumer
-# detects tool calls from the tool-call fragments already streamed.
+# carrying the finish reason and (when present) token usage.
+#
+# The Responses API has no `tool_calls` finish reason of its own, so a completed
+# response that streamed at least one tool call is reported as `tool_calls` - matching
+# what the Chat Completions path emits, so one consumer can drive both APIs.
 #
 # + ev - The terminal Responses stream event
+# + state - Per-stream state, read to decide between `stop` and `tool_calls`
 # + return - The final normalized chunk
-isolated function responsesFinalChunk(ResponsesStreamEvent ev) returns ai:ChatCompletionChunk {
-    ai:FinishReason finishReason = ai:STOP;
+isolated function responsesFinalChunk(ResponsesStreamEvent ev, ResponsesStreamState state)
+        returns ai:ChatCompletionChunk {
+    ai:FinishReason finishReason = state.toolCallCount > 0 ? ai:TOOL_CALLS : ai:STOP;
     if ev.'type == "response.incomplete" {
-        finishReason = ai:LENGTH;
-    } else if ev.'type == "response.failed" {
-        finishReason = ai:CONTENT_FILTER;
+        finishReason = responsesIncompleteReason(ev);
     }
     ai:ChatCompletionChunk chunk = {choices: [{index: 0, delta: {}, finishReason}]};
     ResponsesEventResponse? response = ev.response;
@@ -632,5 +703,67 @@ isolated function responsesFinalChunk(ResponsesStreamEvent ev) returns ai:ChatCo
         }
     }
     return chunk;
+}
+
+# Maps the `incomplete_details.reason` of a "response.incomplete" event onto the
+# normalized finish reason; an incomplete response is a truncation, so anything other
+# than an explicit content-filter stop is reported as `length`.
+#
+# + ev - The "response.incomplete" event
+# + return - The normalized finish reason
+isolated function responsesIncompleteReason(ResponsesStreamEvent ev) returns ai:FinishReason {
+    ResponsesEventResponse? response = ev.response;
+    if response is ResponsesEventResponse {
+        ResponsesEventIncompleteDetails? details = response.incomplete_details;
+        if details is ResponsesEventIncompleteDetails && details.reason == "content_filter" {
+            return ai:CONTENT_FILTER;
+        }
+    }
+    return ai:LENGTH;
+}
+
+# Builds the message for a "response.failed" event, preferring the failure detail the
+# Responses API carries on the response snapshot.
+#
+# + ev - The "response.failed" event
+# + return - The failure message
+isolated function responsesFailureMessage(ResponsesStreamEvent ev) returns string {
+    ResponsesEventResponse? response = ev.response;
+    if response is ResponsesEventResponse {
+        ResponsesEventError? failure = response.'error;
+        if failure is ResponsesEventError {
+            string? message = failure.message;
+            string? code = failure.code;
+            if message is string && code is string {
+                return string `Response generation failed (${code}): ${message}`;
+            }
+            if message is string {
+                return string `Response generation failed: ${message}`;
+            }
+        }
+    }
+    return "Response generation failed";
+}
+
+# Extracts the message from an OpenAI `{"error": {...}}` frame, which either API can emit
+# mid-stream when generation is cut short (a rate limit tripped part-way, for example).
+#
+# + payload - The parsed `data:` payload of one SSE frame
+# + return - The error message, or `()` when the payload is not an error frame
+isolated function extractStreamErrorFrame(json payload) returns string? {
+    if payload !is map<json> {
+        return ();
+    }
+    json? failure = payload["error"];
+    if failure is () {
+        return ();
+    }
+    if failure is map<json> {
+        json? message = failure["message"];
+        if message is string {
+            return message;
+        }
+    }
+    return failure.toJsonString();
 }
 
