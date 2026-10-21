@@ -17,13 +17,11 @@
 import ballerina/ai;
 import ballerina/test;
 
-// Provider using the ReAct flow (model without native tool-call support) over Chat Completions.
-final ModelProvider reactProvider = check new (API_KEY, CHATGPT_4O_LATEST, SERVICE_URL, apiType = CHAT_COMPLETIONS);
 // Reasoning-capable provider over the Responses API.
 final ModelProvider reasoningProvider = check new (API_KEY, GPT_5, SERVICE_URL,
         reasoningEffort = "low", apiType = RESPONSES);
 // Provider with temperature disabled.
-final ModelProvider noTempProvider = check new (API_KEY, GPT_4_TURBO, SERVICE_URL,
+final ModelProvider noTempProvider = check new (API_KEY, GPT_4_1, SERVICE_URL,
         temperature = (), apiType = CHAT_COMPLETIONS);
 // Reasoning-capable provider over the Chat Completions API.
 final ModelProvider chatReasoningProvider = check new (API_KEY, GPT_5, SERVICE_URL,
@@ -135,50 +133,6 @@ function testChatCompletionsChatMalformedToolArgs() {
 }
 
 // ===================================================================
-// ReAct (Chat Completions) chat() tests
-// ===================================================================
-
-@test:Config
-function testReActChatFinalAnswer() returns ai:Error? {
-    ai:ChatMessage[] messages = [
-        <ai:ChatSystemMessage>{role: "system", content: "Answer the question."},
-        <ai:ChatUserMessage>{role: "user", content: "Summarize the plot."}
-    ];
-    ai:ChatAssistantMessage result = check reactProvider->chat(messages, weatherTool);
-    test:assertEquals(result.content, "This is the final ReAct answer.");
-}
-
-@test:Config
-function testReActChatToolCall() returns ai:Error? {
-    ai:ChatMessage[] messages = [
-        <ai:ChatSystemMessage>{role: "system", content: "Answer the question."},
-        <ai:ChatUserMessage>{role: "user", content: "What is the weather in London?"}
-    ];
-    ai:ChatAssistantMessage result = check reactProvider->chat(messages, weatherTool);
-    ai:FunctionCall[]? toolCalls = result.toolCalls;
-    test:assertTrue(toolCalls is ai:FunctionCall[]);
-    if toolCalls is ai:FunctionCall[] {
-        test:assertEquals(toolCalls[0].name, "get_weather");
-    }
-}
-
-@test:Config
-function testReActChatWithAssistantHistory() returns ai:Error? {
-    // Exercises the ReAct request-message builder for assistant messages carrying tool calls & content.
-    ai:ChatMessage[] messages = [
-        <ai:ChatSystemMessage>{role: "system", content: "Answer the question."},
-        <ai:ChatUserMessage>{role: "user", content: "Summarize the report."},
-        <ai:ChatAssistantMessage>{
-            role: "assistant",
-            content: "Prior reasoning.",
-            toolCalls: [{id: "call_1", name: "get_weather", arguments: {"city": "London"}}]
-        }
-    ];
-    ai:ChatAssistantMessage result = check reactProvider->chat(messages, weatherTool);
-    test:assertEquals(result.content, "This is the final ReAct answer.");
-}
-
-// ===================================================================
 // Responses API chat() error/status tests
 // ===================================================================
 
@@ -239,7 +193,7 @@ function testResponsesChatWithStopReturnsError() {
 function testDefaultApiTypeIsChatCompletions() returns ai:Error? {
     // A provider created without an explicit `apiType` must use the Chat Completions API. `stop` is
     // honored there and rejected on the Responses API, so a successful call proves the routing.
-    ModelProvider defaultProvider = check new (API_KEY, GPT_4_TURBO, SERVICE_URL);
+    ModelProvider defaultProvider = check new (API_KEY, GPT_4_1, SERVICE_URL);
     ai:ChatUserMessage userMsg = {role: "user", content: "Hello, how are you?"};
     ai:ChatAssistantMessage result = check defaultProvider->chat(userMsg, [], "STOPSEQ");
     test:assertEquals(result.content, "This is a mock response for: Hello, how are you?");

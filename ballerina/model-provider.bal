@@ -597,31 +597,18 @@ isolated function convertFunctionsToCompletionTools(ai:ChatCompletionFunctions[]
 # Models that accept a reasoning parameter (`reasoning_effort` on Chat Completions,
 # `reasoning` on the Responses API).
 #
-# This is an explicit list rather than a name-prefix test: the `gpt-5*-chat-latest` variants share
-# the `gpt-5` prefix but are not reasoning models and reject the parameter, and `o1-mini` shares the
-# `o1` prefix but does not support it either.
+# This is an explicit list rather than a name-prefix test, so that a non-reasoning variant sharing a
+# family prefix (such as the retired `gpt-5*-chat-latest` models) is never sent the parameter.
 final readonly & map<true> REASONING_MODELS = {
-    "o1": true,
-    "o1-2024-12-17": true,
-    "o1-pro": true,
-    "o1-pro-2025-03-19": true,
     "o3": true,
-    "o3-mini": true,
     "o3-pro": true,
-    "o4-mini": true,
-    "codex-mini-latest": true,
     "gpt-5": true,
     "gpt-5-mini": true,
     "gpt-5-nano": true,
     "gpt-5-pro": true,
-    "gpt-5-codex": true,
     "gpt-5.1": true,
-    "gpt-5.1-codex": true,
-    "gpt-5.1-codex-mini": true,
-    "gpt-5.1-codex-max": true,
     "gpt-5.2": true,
     "gpt-5.2-pro": true,
-    "gpt-5.2-codex": true,
     "gpt-5.3-codex": true,
     "gpt-5.4": true,
     "gpt-5.4-mini": true,

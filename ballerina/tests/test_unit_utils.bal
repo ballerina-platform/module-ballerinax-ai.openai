@@ -42,8 +42,7 @@ final ai:ChatCompletionFunctions[] sampleTools = [
 @test:Config
 function testIsToolCallSupported() {
     test:assertTrue(isToolCallSupported(GPT_4O));
-    test:assertTrue(isToolCallSupported(GPT_4_TURBO));
-    test:assertFalse(isToolCallSupported(CHATGPT_4O_LATEST));
+    test:assertTrue(isToolCallSupported(GPT_4_1));
 }
 
 @test:Config
@@ -182,25 +181,13 @@ function testFormatFinalAnswerToJsonWithFences() {
 
 @test:Config
 function testSupportsReasoning() {
-    test:assertFalse(supportsReasoning(O1_MINI));
-    test:assertTrue(supportsReasoning(O1));
     test:assertTrue(supportsReasoning(O3));
-    test:assertTrue(supportsReasoning(O3_MINI));
-    test:assertTrue(supportsReasoning(O4_MINI));
     test:assertTrue(supportsReasoning(GPT_5));
     test:assertTrue(supportsReasoning(GPT_5_MINI));
     test:assertTrue(supportsReasoning(GPT_5_6_SOL));
     test:assertTrue(supportsReasoning(GPT_5_5_PRO));
     test:assertFalse(supportsReasoning(GPT_4O));
-    test:assertFalse(supportsReasoning(GPT_3_5_TURBO));
-}
-
-@test:Config
-function testSupportsReasoningIsFalseForChatVariants() {
-    // The `*-chat-latest` models share the `gpt-5` prefix but are not reasoning models.
-    test:assertFalse(supportsReasoning(GPT_5_CHAT));
-    test:assertFalse(supportsReasoning(GPT_5_1_CHAT));
-    test:assertFalse(supportsReasoning(GPT_5_2_CHAT));
+    test:assertFalse(supportsReasoning(GPT_4_1));
 }
 
 @test:Config
@@ -622,21 +609,6 @@ function testConvertToResponsesInputAssistantWithoutToolCalls() returns ai:Error
         check convertToResponsesInput(messages, [], GPT_4O);
     responses:InputItem[] itemArr = <responses:InputItem[]>items;
     test:assertEquals(itemArr.length(), 1);
-}
-
-@test:Config
-function testConvertToResponsesInputReActInstructions() returns ai:Error? {
-    // For models without tool-call support, tools are folded into a ReAct prompt.
-    ai:ChatMessage[] messages = [
-        <ai:ChatSystemMessage>{role: "system", content: "Base instructions."}
-    ];
-    [responses:InputParam, string?] [_, instructions] =
-        check convertToResponsesInput(messages, sampleTools, CHATGPT_4O_LATEST);
-    test:assertTrue(instructions is string);
-    if instructions is string {
-        test:assertTrue(instructions.includes("get_weather"));
-        test:assertTrue(instructions.includes("Base instructions."));
-    }
 }
 
 @test:Config
