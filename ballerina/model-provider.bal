@@ -177,7 +177,7 @@ public isolated distinct client class ModelProvider {
         chat:CreateChatCompletionRequest request = {
             max_completion_tokens: self.maxTokens,
             model: self.modelType,
-            messages: check self.prepareCompletionRequestMessages(messages, tools)
+            messages: check self.prepareCompletionRequestMessages(messages)
         };
         if temp is decimal {
             request.temperature = temp;
@@ -185,8 +185,7 @@ public isolated distinct client class ModelProvider {
         if stop is string {
             request.stop = stop;
         }
-        boolean supportsToolCalls = isToolCallSupported(self.modelType);
-        if supportsToolCalls && tools.length() > 0 {
+        if tools.length() > 0 {
             request.tools = convertFunctionsToCompletionTools(tools);
             span.addTools(tools);
         }
@@ -268,7 +267,7 @@ public isolated distinct client class ModelProvider {
 
         // Convert messages to Responses API input format
         [responses:InputParam, string?] [inputItems, instructions] =
-            check convertToResponsesInput(messages, tools, self.modelType);
+            check convertToResponsesInput(messages);
 
         responses:CreateResponse request = {
             model: self.modelType,
@@ -363,8 +362,8 @@ public isolated distinct client class ModelProvider {
 
     // ===== Chat Completions helper methods =====
 
-    private isolated function prepareCompletionRequestMessages(ai:ChatMessage[]|ai:ChatUserMessage messages,
-            ai:ChatCompletionFunctions[] tools) returns chat:ChatCompletionRequestMessage[]|ai:Error {
+    private isolated function prepareCompletionRequestMessages(ai:ChatMessage[]|ai:ChatUserMessage messages)
+            returns chat:ChatCompletionRequestMessage[]|ai:Error {
         chat:ChatCompletionRequestMessage[] chatCompletionRequestMessages = [];
         if messages is ai:ChatUserMessage {
             chatCompletionRequestMessages.push({
@@ -374,18 +373,13 @@ public isolated distinct client class ModelProvider {
             });
             return chatCompletionRequestMessages;
         }
-        boolean supportsToolCalls = isToolCallSupported(self.modelType);
         // Per-tool-name occurrence counters used only when a message carries no id of its own.
         // Counting requests and results separately keeps the nth call to a given tool paired with the
         // nth result for that tool, while still giving each call its own id.
         map<int> toolCallCounts = {};
         map<int> toolResultCounts = {};
         foreach ai:ChatMessage message in messages {
-            if message is ai:ChatSystemMessage && !supportsToolCalls {
-                string reactPrompt = constructReActPrompt(extractToolInfo(tools),
-                        check getChatMessageStringContent(message.content));
-                chatCompletionRequestMessages.push({role: ai:SYSTEM, content: reactPrompt});
-            } else if message is ai:ChatAssistantMessage {
+            if message is ai:ChatAssistantMessage {
                 chat:ChatCompletionRequestAssistantMessage assistantMessage =
                     self.buildRequestAssistantMessage(message, toolCallCounts);
                 chatCompletionRequestMessages.push(assistantMessage);
@@ -420,9 +414,8 @@ public isolated distinct client class ModelProvider {
     private isolated function buildRequestAssistantMessage(ai:ChatAssistantMessage message, map<int> toolCallCounts)
     returns chat:ChatCompletionRequestAssistantMessage {
         chat:ChatCompletionRequestAssistantMessage assistantMessage = {role: ai:ASSISTANT};
-        boolean supportsToolCalls = isToolCallSupported(self.modelType);
         ai:FunctionCall[]? toolCalls = message.toolCalls;
-        if supportsToolCalls && toolCalls is ai:FunctionCall[] {
+        if toolCalls is ai:FunctionCall[] {
             chat:ChatCompletionMessageToolCall[] requestToolCalls = [];
             foreach ai:FunctionCall tc in toolCalls {
                 requestToolCalls.push({
@@ -435,14 +428,10 @@ public isolated distinct client class ModelProvider {
                 });
             }
             assistantMessage.tool_calls = requestToolCalls;
-        } else if !supportsToolCalls && toolCalls is ai:FunctionCall[] {
-            assistantMessage.content = formatFunctionCallToJsonWithFences(toolCalls[0]);
         }
         string? content = message?.content;
-        if supportsToolCalls && content is string {
+        if content is string {
             assistantMessage.content = content;
-        } else if !supportsToolCalls && content is string {
-            assistantMessage.content = formatFinalAnswerToJsonWithFences(content);
         }
         return assistantMessage;
     }
@@ -450,56 +439,42 @@ public isolated distinct client class ModelProvider {
     private isolated function convertResponseToAssistantMessage(chat:ChatCompletionResponseMessage? message)
     returns ai:ChatAssistantMessage|ai:LlmError {
         do {
-            boolean hasToolCallResponse = isToolCallSupported(self.modelType);
             ai:ChatAssistantMessage chatAssistantMessage = {role: ai:ASSISTANT};
-            if hasToolCallResponse {
-                anydata responseContent = message?.content;
-                chatAssistantMessage.content = responseContent is string ? responseContent : ();
+            anydata responseContent = message?.content;
+            chatAssistantMessage.content = responseContent is string ? responseContent : ();
 
-                // Use modern tool_calls format (preferred over deprecated function_call)
-                chat:ChatCompletionMessageToolCalls? toolCalls = message?.tool_calls;
-                if toolCalls is chat:ChatCompletionMessageToolCalls && toolCalls.length() > 0 {
-                    ai:FunctionCall[] functionCalls = [];
-                    foreach chat:ChatCompletionMessageToolCall|chat:ChatCompletionMessageCustomToolCall tc
-                            in toolCalls {
-                        if tc is chat:ChatCompletionMessageCustomToolCall {
-                            return error ai:LlmError("Custom tools are not supported, Found: " + tc.toJsonString());
-                        }
-                        chat:ChatCompletionMessageToolCall toolCall = <chat:ChatCompletionMessageToolCall>tc;
+            // Use modern tool_calls format (preferred over deprecated function_call)
+            chat:ChatCompletionMessageToolCalls? toolCalls = message?.tool_calls;
+            if toolCalls is chat:ChatCompletionMessageToolCalls && toolCalls.length() > 0 {
+                ai:FunctionCall[] functionCalls = [];
+                foreach chat:ChatCompletionMessageToolCall|chat:ChatCompletionMessageCustomToolCall tc
+                        in toolCalls {
+                    if tc is chat:ChatCompletionMessageCustomToolCall {
+                        return error ai:LlmError("Custom tools are not supported, Found: " + tc.toJsonString());
+                    }
+                    chat:ChatCompletionMessageToolCall toolCall = <chat:ChatCompletionMessageToolCall>tc;
 
-                        json arguments = check toolCall.'function.arguments.fromJsonString();
-                        functionCalls.push({
-                            id: toolCall.id,
-                            name: toolCall.'function.name,
-                            arguments: check arguments.cloneWithType()
-                        });
-                    }
-                    chatAssistantMessage.toolCalls = functionCalls;
-                } else {
-                    // Fall back to deprecated function_call for backward compatibility
-                    chat:ChatCompletionResponseMessageFunctionCall? functionCall = message?.function_call;
-                    if functionCall is chat:ChatCompletionResponseMessageFunctionCall {
-                        json arguments = check functionCall.arguments.fromJsonString();
-                        chatAssistantMessage.toolCalls = [
-                            {
-                                name: functionCall.name,
-                                arguments: check arguments.cloneWithType()
-                            }
-                        ];
-                    }
+                    json arguments = check toolCall.'function.arguments.fromJsonString();
+                    functionCalls.push({
+                        id: toolCall.id,
+                        name: toolCall.'function.name,
+                        arguments: check arguments.cloneWithType()
+                    });
                 }
-                return chatAssistantMessage;
+                chatAssistantMessage.toolCalls = functionCalls;
+            } else {
+                // Fall back to deprecated function_call for backward compatibility
+                chat:ChatCompletionResponseMessageFunctionCall? functionCall = message?.function_call;
+                if functionCall is chat:ChatCompletionResponseMessageFunctionCall {
+                    json arguments = check functionCall.arguments.fromJsonString();
+                    chatAssistantMessage.toolCalls = [
+                        {
+                            name: functionCall.name,
+                            arguments: check arguments.cloneWithType()
+                        }
+                    ];
+                }
             }
-
-            anydata reActContent = message?.content;
-            ai:LlmToolResponse|LlmChatResponse parsedReActResponse =
-                check parseReActLlmResponse(reActContent is string ? reActContent : ());
-            if parsedReActResponse is ai:LlmToolResponse {
-                chatAssistantMessage.toolCalls = [parsedReActResponse];
-                return chatAssistantMessage;
-            }
-            // Set the "Final Answer" action's input to the chat assistant message content
-            chatAssistantMessage.content = parsedReActResponse.content;
             return chatAssistantMessage;
         } on fail error e {
             return error("Invalid or malformed arguments received in function call response.", e);

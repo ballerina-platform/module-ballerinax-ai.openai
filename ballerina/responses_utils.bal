@@ -25,11 +25,8 @@ import ballerinax/openai.responses;
 # User, assistant, and function messages are converted to typed input items.
 #
 # + messages - List of chat messages or a single user message
-# + tools - Tool definitions (used for ReAct prompt construction on unsupported models)
-# + modelType - The model type (used to determine tool call support)
 # + return - A tuple of [input items, optional instructions] or an error
-isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage messages,
-        ai:ChatCompletionFunctions[] tools, OPEN_AI_MODEL_NAMES modelType)
+isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage messages)
         returns [responses:InputParam, string?]|ai:Error {
     if messages is ai:ChatUserMessage {
         responses:InputItem item = <responses:EasyInputMessage>{
@@ -41,7 +38,6 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
 
     responses:InputItem[] inputItems = [];
     string[] instructionParts = [];
-    boolean supportsToolCalls = isToolCallSupported(modelType);
     // Per-tool-name occurrence counters used only when a message carries no id of its own. Counting
     // calls and outputs separately keeps the nth call to a given tool paired with the nth output for
     // that tool, while still giving each call its own `call_id`.
@@ -50,11 +46,7 @@ isolated function convertToResponsesInput(ai:ChatMessage[]|ai:ChatUserMessage me
 
     foreach ai:ChatMessage message in messages {
         if message is ai:ChatSystemMessage {
-            string content = check getChatMessageStringContent(message.content);
-            if !supportsToolCalls && tools.length() > 0 {
-                content = constructReActPrompt(extractToolInfo(tools), content);
-            }
-            instructionParts.push(content);
+            instructionParts.push(check getChatMessageStringContent(message.content));
         } else if message is ai:ChatUserMessage {
             inputItems.push(<responses:EasyInputMessage>{
                 role: ai:USER,

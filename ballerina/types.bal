@@ -138,7 +138,8 @@ public enum OPEN_AI_MODEL_NAMES {
     # Alias that always routes to the latest `gpt-5.6-sol` snapshot.
     GPT_5_6 = "gpt-5.6",
     GPT_5_6_SOL = "gpt-5.6-sol",
-    GPT_5_6_TERRA = "gpt-5.6-terra"
+    GPT_5_6_TERRA = "gpt-5.6-terra",
+    GPT_5_6_LUNA = "gpt-5.6-luna"
 }
 
 @display {label: "OpenAI Embedding Model Names"}
@@ -147,12 +148,3 @@ public enum OPEN_AI_EMBEDDING_MODEL_NAMES {
     TEXT_EMBEDDING_3_LARGE = "text-embedding-3-large",
     TEXT_EMBEDDING_ADA_002 = "text-embedding-ada-002"
 }
-
-type ToolInfo readonly & record {|
-    string toolList;
-    string toolIntro;
-|};
-
-type LlmChatResponse record {|
-    string content;
-|};

@@ -19,10 +19,6 @@ import ballerina/test;
 import ballerinax/openai.chat;
 import ballerinax/openai.responses;
 
-// ===================================================================
-// react-utils.bal unit tests
-// ===================================================================
-
 final ai:ChatCompletionFunctions[] sampleTools = [
     {
         name: "get_weather",
@@ -39,142 +35,6 @@ final ai:ChatCompletionFunctions[] sampleTools = [
     }
 ];
 
-@test:Config
-function testIsToolCallSupported() {
-    test:assertTrue(isToolCallSupported(GPT_4O));
-    test:assertTrue(isToolCallSupported(GPT_4_1));
-}
-
-@test:Config
-function testExtractToolInfo() {
-    ToolInfo info = extractToolInfo(sampleTools);
-    test:assertEquals(info.toolList, "get_weather, get_time");
-    test:assertTrue(info.toolIntro.includes("get_weather"));
-    test:assertTrue(info.toolIntro.includes("get_time"));
-}
-
-@test:Config
-function testConstructReActPrompt() {
-    string prompt = constructReActPrompt(extractToolInfo(sampleTools), "Follow the rules.");
-    test:assertTrue(prompt.includes("get_weather"));
-    test:assertTrue(prompt.includes("Final Answer"));
-    test:assertTrue(prompt.includes("Follow the rules."));
-}
-
-@test:Config
-function testParseReActLlmResponseNil() {
-    LlmChatResponse|ai:LlmToolResponse|ai:LlmInvalidGenerationError result = parseReActLlmResponse(());
-    test:assertTrue(result is ai:LlmInvalidGenerationError);
-}
-
-@test:Config
-function testParseReActLlmResponseFinalAnswer() {
-    string resp = string `${BACKTICKS}
-{
-  "action": "Final Answer",
-  "action_input": "The answer is 42"
-}
-${BACKTICKS}`;
-    LlmChatResponse|ai:LlmToolResponse|ai:LlmInvalidGenerationError result = parseReActLlmResponse(resp);
-    test:assertTrue(result is LlmChatResponse);
-    if result is LlmChatResponse {
-        test:assertEquals(result.content, "The answer is 42");
-    }
-}
-
-@test:Config
-function testParseReActLlmResponseToolCall() {
-    string resp = string `${BACKTICKS}
-{
-  "action": "get_weather",
-  "action_input": {"city": "London"}
-}
-${BACKTICKS}`;
-    LlmChatResponse|ai:LlmToolResponse|ai:LlmInvalidGenerationError result = parseReActLlmResponse(resp);
-    test:assertTrue(result is ai:LlmToolResponse);
-    if result is ai:LlmToolResponse {
-        test:assertEquals(result.name, "get_weather");
-        test:assertEquals(result.arguments, {"city": "London"});
-    }
-}
-
-@test:Config
-function testParseReActLlmResponseInvalidJson() {
-    string resp = string `${BACKTICKS}
-this is not valid json
-${BACKTICKS}`;
-    LlmChatResponse|ai:LlmToolResponse|ai:LlmInvalidGenerationError result = parseReActLlmResponse(resp);
-    test:assertTrue(result is ai:LlmInvalidGenerationError);
-}
-
-@test:Config
-function testParseReActLlmResponseTooFewSegments() {
-    LlmChatResponse|ai:LlmToolResponse|ai:LlmInvalidGenerationError result = parseReActLlmResponse("no braces here");
-    test:assertTrue(result is ai:LlmInvalidGenerationError);
-}
-
-@test:Config
-function testParseReActLlmResponseInvalidAction() {
-    // A JSON blob missing the action name results in an invalid tool response.
-    string resp = string `${BACKTICKS}
-{
-  "action_input": {"city": "London"}
-}
-${BACKTICKS}`;
-    LlmChatResponse|ai:LlmToolResponse|ai:LlmInvalidGenerationError result = parseReActLlmResponse(resp);
-    test:assertTrue(result is ai:LlmInvalidGenerationError);
-}
-
-@test:Config
-function testNormalizeLlmResponseWrapsBareJsonObject() {
-    // Bare JSON object without fences: should be wrapped and parseable.
-    string resp = "{\"action\": \"Final Answer\", \"action_input\": \"hi\"}";
-    LlmChatResponse|ai:LlmToolResponse|ai:LlmInvalidGenerationError result = parseReActLlmResponse(resp);
-    test:assertTrue(result is LlmChatResponse);
-    if result is LlmChatResponse {
-        test:assertEquals(result.content, "hi");
-    }
-}
-
-@test:Config
-function testNormalizeLlmResponseExtractsEmbeddedJson() {
-    // JSON embedded within surrounding text and no fences.
-    string resp = "Thought: I know the answer {\"action\": \"Final Answer\", \"action_input\": \"done\"} end";
-    LlmChatResponse|ai:LlmToolResponse|ai:LlmInvalidGenerationError result = parseReActLlmResponse(resp);
-    test:assertTrue(result is LlmChatResponse);
-    if result is LlmChatResponse {
-        test:assertEquals(result.content, "done");
-    }
-}
-
-@test:Config
-function testNormalizeLlmResponseStripsJsonFenceLabel() {
-    string resp = string `${BACKTICKS}json
-{"action": "Final Answer", "action_input": "labeled"}
-${BACKTICKS}`;
-    LlmChatResponse|ai:LlmToolResponse|ai:LlmInvalidGenerationError result = parseReActLlmResponse(resp);
-    test:assertTrue(result is LlmChatResponse);
-    if result is LlmChatResponse {
-        test:assertEquals(result.content, "labeled");
-    }
-}
-
-@test:Config
-function testFormatFunctionCallToJsonWithFences() {
-    ai:FunctionCall fc = {name: "get_weather", arguments: {"city": "Paris"}};
-    string formatted = formatFunctionCallToJsonWithFences(fc);
-    test:assertTrue(formatted.includes("get_weather"));
-    test:assertTrue(formatted.includes("action_input"));
-    test:assertTrue(formatted.includes("Paris"));
-}
-
-@test:Config
-function testFormatFinalAnswerToJsonWithFences() {
-    string formatted = formatFinalAnswerToJsonWithFences("this is the final answer");
-    test:assertTrue(formatted.includes("Final Answer"));
-    test:assertTrue(formatted.includes("this is the final answer"));
-}
-
 // ===================================================================
 // model-provider.bal standalone function unit tests
 // ===================================================================
@@ -185,6 +45,7 @@ function testSupportsReasoning() {
     test:assertTrue(supportsReasoning(GPT_5));
     test:assertTrue(supportsReasoning(GPT_5_MINI));
     test:assertTrue(supportsReasoning(GPT_5_6_SOL));
+    test:assertTrue(supportsReasoning(GPT_5_6_LUNA));
     test:assertTrue(supportsReasoning(GPT_5_5_PRO));
     test:assertFalse(supportsReasoning(GPT_4O));
     test:assertFalse(supportsReasoning(GPT_4_1));
@@ -468,7 +329,7 @@ function testGetGetResultsToolChoice() {
 function testConvertToResponsesInputSingleUserMessage() returns ai:Error? {
     ai:ChatUserMessage msg = {role: "user", content: "hello"};
     [responses:InputParam, string?] [items, instructions] =
-        check convertToResponsesInput(msg, [], GPT_4O);
+        check convertToResponsesInput(msg);
     test:assertTrue(instructions is ());
     responses:InputItem[] itemArr = <responses:InputItem[]>items;
     test:assertEquals(itemArr.length(), 1);
@@ -487,7 +348,7 @@ function testConvertToResponsesInputWithSystemUserAssistantFunction() returns ai
         <ai:ChatFunctionMessage>{role: "function", name: "get_weather", id: "call_1", content: "sunny"}
     ];
     [responses:InputParam, string?] [items, instructions] =
-        check convertToResponsesInput(messages, sampleTools, GPT_4O);
+        check convertToResponsesInput(messages);
     test:assertEquals(instructions, "You are helpful.");
     responses:InputItem[] itemArr = <responses:InputItem[]>items;
     // user + assistant-content + function_call + function_call_output = 4
@@ -504,7 +365,7 @@ function testConvertToResponsesInputWithNilToolCallArguments() returns ai:Error?
             toolCalls: [{id: "call_1", name: "ping", arguments: ()}]
         }
     ];
-    [responses:InputParam, string?] [items, _] = check convertToResponsesInput(messages, sampleTools, GPT_4O);
+    [responses:InputParam, string?] [items, _] = check convertToResponsesInput(messages);
     responses:InputItem[] itemArr = <responses:InputItem[]>items;
     responses:FunctionToolCall call = <responses:FunctionToolCall>itemArr[1];
     test:assertEquals(call.arguments, "{}");
@@ -527,7 +388,7 @@ function testConvertToResponsesInputWithParallelToolCalls() returns ai:Error? {
         <ai:ChatFunctionMessage>{role: "function", name: "getTime", id: "call_time", content: "10:00"}
     ];
     [responses:InputParam, string?] [items, _] =
-        check convertToResponsesInput(messages, sampleTools, GPT_4O);
+        check convertToResponsesInput(messages);
     responses:InputItem[] itemArr = <responses:InputItem[]>items;
     // user + 2 function_call + 2 function_call_output = 5
     test:assertEquals(itemArr.length(), 5);
@@ -558,7 +419,7 @@ function testConvertToResponsesInputGeneratesDistinctIdsForRepeatedToolWithoutId
         <ai:ChatFunctionMessage>{role: "function", name: "getWeather", content: "rainy"}
     ];
     [responses:InputParam, string?] [items, _] =
-        check convertToResponsesInput(messages, sampleTools, GPT_4O);
+        check convertToResponsesInput(messages);
     responses:InputItem[] itemArr = <responses:InputItem[]>items;
     test:assertEquals(itemArr.length(), 5);
 
@@ -606,7 +467,7 @@ function testConvertToResponsesInputAssistantWithoutToolCalls() returns ai:Error
         <ai:ChatAssistantMessage>{role: "assistant", content: "just text"}
     ];
     [responses:InputParam, string?] [items, _] =
-        check convertToResponsesInput(messages, [], GPT_4O);
+        check convertToResponsesInput(messages);
     responses:InputItem[] itemArr = <responses:InputItem[]>items;
     test:assertEquals(itemArr.length(), 1);
 }
