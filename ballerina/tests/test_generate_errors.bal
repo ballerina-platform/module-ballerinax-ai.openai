@@ -182,7 +182,7 @@ function testInitWithDefaultServiceUrlAndApiType() returns ai:Error? {
 
 @test:Config
 function testInitChatCompletionsWithInvalidUrl() {
-    ModelProvider|ai:Error result = new (API_KEY, GPT_4_TURBO, "ht tp://invalid url", apiType = CHAT_COMPLETIONS);
+    ModelProvider|ai:Error result = new (API_KEY, GPT_4_1, "ht tp://invalid url", apiType = CHAT_COMPLETIONS);
     test:assertTrue(result is ai:Error);
 }
 

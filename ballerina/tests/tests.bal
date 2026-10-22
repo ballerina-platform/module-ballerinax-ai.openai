@@ -24,7 +24,7 @@ const API_KEY = "not-a-real-api-key";
 const ERROR_MESSAGE = "Error occurred while attempting to parse the response from the LLM as the expected type. Retrying and/or validating the prompt could fix the response.";
 const RUNTIME_SCHEMA_NOT_SUPPORTED_ERROR_MESSAGE = "Runtime schema generation is not yet supported";
 
-final ModelProvider provider = check new (API_KEY, GPT_4_TURBO, SERVICE_URL, apiType = CHAT_COMPLETIONS);
+final ModelProvider provider = check new (API_KEY, GPT_4_1, SERVICE_URL, apiType = CHAT_COMPLETIONS);
 final ModelProvider responsesProvider = check new (API_KEY, GPT_4O, SERVICE_URL, apiType = RESPONSES);
 
 @test:Config

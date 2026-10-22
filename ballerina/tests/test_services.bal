@@ -26,9 +26,9 @@ service /llm on new http:Listener(8080) {
     resource function post openai/chat/completions(@http:Payload json payload)
                 returns chat:CreateChatCompletionResponse|error {
         string model = check payload.model.ensureType();
-        // The chat-completions path is exercised by the GPT_4_TURBO provider, the ReAct-based
-        // CHATGPT_4O_LATEST provider, and the reasoning-capable GPT_5 provider.
-        test:assertTrue(model == GPT_4_TURBO || model == CHATGPT_4O_LATEST || model == GPT_5,
+        // The chat-completions path is exercised by the GPT_4_1 provider and the reasoning-capable
+        // GPT_5 provider.
+        test:assertTrue(model == GPT_4_1 || model == GPT_5,
                 string `Unexpected model in chat/completions request: ${model}`);
         chat:ChatCompletionRequestMessage[] messages = check (check payload.messages).fromJsonWithType();
 
@@ -135,11 +135,6 @@ service /llm on new http:Listener(8080) {
                 test:assertFail("No tools in the payload");
             }
             return getParallelToolCallResponse();
-        }
-
-        // ReAct models (no native tool-call support) receive a ReAct-formatted string.
-        if model == CHATGPT_4O_LATEST {
-            return getChatCompletionsReActResponse(userContent);
         }
 
         if hasFunctionTools {
@@ -449,7 +444,7 @@ isolated function getChatCompletionsSimpleChatResponse(string content) returns c
         id: "chatcmpl-simple-test",
         'object: "chat.completion",
         created: 1234567890,
-        model: GPT_4_TURBO,
+        model: GPT_4_1,
         choices: [
             {
                 finish_reason: "stop",
@@ -472,7 +467,7 @@ isolated function getChatCompletionsToolCallResponse() returns chat:CreateChatCo
         id: "chatcmpl-tool-test",
         'object: "chat.completion",
         created: 1234567890,
-        model: GPT_4_TURBO,
+        model: GPT_4_1,
         choices: [
             {
                 finish_reason: "tool_calls",
@@ -504,7 +499,7 @@ isolated function getChatCompletionsEmptyChoicesResponse() returns chat:CreateCh
     id: "chatcmpl-empty",
     'object: "chat.completion",
     created: 1234567890,
-    model: GPT_4_TURBO,
+    model: GPT_4_1,
     choices: [],
     usage: {prompt_tokens: 10, completion_tokens: 0, total_tokens: 10}
 };
@@ -514,7 +509,7 @@ isolated function getChatCompletionsFunctionCallResponse() returns chat:CreateCh
     id: "chatcmpl-fncall",
     'object: "chat.completion",
     created: 1234567890,
-    model: GPT_4_TURBO,
+    model: GPT_4_1,
     choices: [
         {
             finish_reason: "function_call",
@@ -539,7 +534,7 @@ isolated function getChatCompletionsCustomToolResponse() returns chat:CreateChat
     id: "chatcmpl-custom",
     'object: "chat.completion",
     created: 1234567890,
-    model: GPT_4_TURBO,
+    model: GPT_4_1,
     choices: [
         {
             finish_reason: "tool_calls",
@@ -567,7 +562,7 @@ isolated function getChatCompletionsMalformedToolArgsResponse() returns chat:Cre
     id: "chatcmpl-malformed",
     'object: "chat.completion",
     created: 1234567890,
-    model: GPT_4_TURBO,
+    model: GPT_4_1,
     choices: [
         {
             finish_reason: "tool_calls",
@@ -589,41 +584,6 @@ isolated function getChatCompletionsMalformedToolArgsResponse() returns chat:Cre
     ],
     usage: {prompt_tokens: 30, completion_tokens: 10, total_tokens: 40}
 };
-
-// Builds a Chat Completions response with ReAct-formatted content for the CHATGPT_4O_LATEST model.
-isolated function getChatCompletionsReActResponse(string userContent) returns chat:CreateChatCompletionResponse {
-    string reactContent;
-    if userContent.includes("weather") {
-        reactContent = string `${BACKTICKS}
-{
-  "action": "get_weather",
-  "action_input": {"city": "London"}
-}
-${BACKTICKS}`;
-    } else {
-        reactContent = string `${BACKTICKS}
-{
-  "action": "Final Answer",
-  "action_input": "This is the final ReAct answer."
-}
-${BACKTICKS}`;
-    }
-    return {
-        id: "chatcmpl-react",
-        'object: "chat.completion",
-        created: 1234567890,
-        model: CHATGPT_4O_LATEST,
-        choices: [
-            {
-                finish_reason: "stop",
-                index: 0,
-                logprobs: (),
-                message: {role: "assistant", refusal: (), content: reactContent}
-            }
-        ],
-        usage: {prompt_tokens: 40, completion_tokens: 20, total_tokens: 60}
-    };
-}
 
 // Builds a Responses API response with a non-completed status for error-path tests.
 isolated function getTestResponsesApiStatusResponse(
