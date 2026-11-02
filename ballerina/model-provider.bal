@@ -59,6 +59,7 @@ public isolated distinct client class ModelProvider {
             @display {label: "API Type"} ApiType apiType = CHAT_COMPLETIONS,
             @display {label: "Connection Configuration"} *ConnectionConfig connectionConfig) returns ai:Error? {
         check validateReasoningEffort(modelType, reasoningEffort);
+        check validateApiType(modelType, apiType);
         self.modelType = modelType;
         self.temperature = temperature;
         self.maxTokens = maxTokens;
@@ -172,6 +173,13 @@ public isolated distinct client class ModelProvider {
         json|ai:Error inputMessage = convertMessageToJson(messages);
         if inputMessage is json {
             span.addInputMessages(inputMessage);
+        }
+        if tools.length() > 0 {
+            ai:Error? toolCallError = validateChatCompletionsToolCall(self.modelType, self.reasoning);
+            if toolCallError is ai:Error {
+                span.close(toolCallError);
+                return toolCallError;
+            }
         }
 
         chat:CreateChatCompletionRequest request = {
@@ -594,7 +602,12 @@ final readonly & map<true> REASONING_MODELS = {
     "gpt-5.6": true,
     "gpt-5.6-sol": true,
     "gpt-5.6-terra": true,
-    "gpt-5.6-luna": true
+    "gpt-5.6-luna": true,
+    "gpt-6-astra": true,
+    "gpt-6-sol": true,
+    "gpt-6-luna": true,
+    "gpt-6.1-sol": true,
+    "gpt-6.1-terra": true
 };
 
 # Reasoning-effort values accepted by each model, as documented in the OpenAI model catalog.
@@ -618,12 +631,47 @@ final readonly & map<ReasoningEffort[]> SUPPORTED_REASONING_EFFORTS = {
     "gpt-5.4-pro": [MEDIUM, HIGH, XHIGH],
     "gpt-5.5": [NONE, LOW, MEDIUM, HIGH, XHIGH],
     "gpt-5.5-pro": [MEDIUM, HIGH, XHIGH],
-    // The gpt-5.6 family also accepts `max`, which cannot be expressed until the
+    // The gpt-5.6 and gpt-6 families also accept `max`, which cannot be expressed until the
     // openai.chat/openai.responses connectors regenerate their `ReasoningEffort` union.
     "gpt-5.6": [NONE, LOW, MEDIUM, HIGH, XHIGH],
     "gpt-5.6-sol": [NONE, LOW, MEDIUM, HIGH, XHIGH],
     "gpt-5.6-terra": [NONE, LOW, MEDIUM, HIGH, XHIGH],
-    "gpt-5.6-luna": [NONE, LOW, MEDIUM, HIGH, XHIGH]
+    "gpt-5.6-luna": [NONE, LOW, MEDIUM, HIGH, XHIGH],
+    // gpt-6-astra and gpt-6.1-sol cannot disable reasoning, so they do not accept `none`.
+    "gpt-6-astra": [LOW, MEDIUM, HIGH, XHIGH],
+    "gpt-6-sol": [NONE, LOW, MEDIUM, HIGH, XHIGH],
+    "gpt-6-luna": [NONE, LOW, MEDIUM, HIGH, XHIGH],
+    "gpt-6.1-sol": [LOW, MEDIUM, HIGH, XHIGH],
+    "gpt-6.1-terra": [NONE, LOW, MEDIUM, HIGH, XHIGH]
+};
+
+# Models that are served only by the Responses API; OpenAI rejects every Chat Completions request for them.
+final readonly & map<true> RESPONSES_ONLY_MODELS = {
+    "o3-pro": true,
+    "gpt-5-pro": true,
+    "gpt-5.2-pro": true,
+    "gpt-5.3-codex": true,
+    "gpt-5.4-pro": true,
+    "gpt-5.5-pro": true
+};
+
+# Models whose Chat Completions endpoint does not accept function tools; tool calling with them
+# requires the Responses API.
+final readonly & map<true> RESPONSES_ONLY_TOOL_CALL_MODELS = {
+    "gpt-6-astra": true,
+    "gpt-6.1-sol": true,
+    "gpt-6.1-terra": true
+};
+
+# Models whose Chat Completions endpoint accepts function tools only with reasoning disabled
+# (`reasoningEffort = NONE`). Without an explicit effort these models default to `medium`.
+final readonly & map<true> NO_REASONING_TOOL_CALL_MODELS = {
+    "gpt-5.6": true,
+    "gpt-5.6-sol": true,
+    "gpt-5.6-terra": true,
+    "gpt-5.6-luna": true,
+    "gpt-6-sol": true,
+    "gpt-6-luna": true
 };
 
 # Determines whether the given model supports the `reasoning` (reasoning_effort) parameter.
@@ -650,6 +698,40 @@ isolated function validateReasoningEffort(OPEN_AI_MODEL_NAMES modelType, Reasoni
     if supportedEfforts is ReasoningEffort[] && supportedEfforts.indexOf(effort) is () {
         return error ai:Error(string `The model '${modelType}' does not support the reasoning effort '${
                 effort}'. Supported values: ${string:'join(", ", ...supportedEfforts)}.`);
+    }
+    return;
+}
+
+# Validates that the model is served by the selected API, so that a Responses-only model
+# fails at initialization instead of being rejected by OpenAI at the first call.
+#
+# + modelType - The model name
+# + apiType - The configured API type
+# + return - An `ai:Error` if the model is not available on the API; otherwise `()`
+isolated function validateApiType(OPEN_AI_MODEL_NAMES modelType, ApiType apiType) returns ai:Error? {
+    if apiType == CHAT_COMPLETIONS && RESPONSES_ONLY_MODELS.hasKey(modelType) {
+        return error ai:Error(string `The model '${modelType}' is available only through the Responses API. ` +
+                "Use 'apiType = RESPONSES' with this model.");
+    }
+    return;
+}
+
+# Validates that the model accepts function tools on the Chat Completions API with the configured
+# reasoning effort, so that an unsupported combination fails before the request is sent instead of
+# being rejected by OpenAI. `generate()` relies on a tool call as well, so it is subject to the same check.
+#
+# + modelType - The model name
+# + effort - The configured reasoning effort, if any
+# + return - An `ai:Error` if the model cannot use tools on the Chat Completions API; otherwise `()`
+isolated function validateChatCompletionsToolCall(OPEN_AI_MODEL_NAMES modelType, ReasoningEffort? effort)
+        returns ai:Error? {
+    if RESPONSES_ONLY_TOOL_CALL_MODELS.hasKey(modelType) {
+        return error ai:Error(string `The model '${modelType}' supports tool calling only through the ` +
+                "Responses API. Use 'apiType = RESPONSES' to use tools or 'generate()' with this model.");
+    }
+    if NO_REASONING_TOOL_CALL_MODELS.hasKey(modelType) && effort != NONE {
+        return error ai:Error(string `The model '${modelType}' supports tool calling on the Chat Completions ` +
+                "API only with 'reasoningEffort = NONE'. Set 'reasoningEffort = NONE' or use 'apiType = RESPONSES'.");
     }
     return;
 }

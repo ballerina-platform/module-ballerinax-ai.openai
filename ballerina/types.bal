@@ -94,7 +94,7 @@ public enum ApiType {
 # `minimal`, `low`, `medium` and `high`, while `gpt-5-pro` accepts only `high`.
 # The value is validated against the selected model when the provider is initialized.
 #
-# Note: the `max` effort accepted by the `gpt-5.6` family cannot be represented yet, because
+# Note: the `max` effort accepted by the `gpt-5.6` and `gpt-6` families cannot be represented yet, because
 # `ballerinax/openai.chat` and `ballerinax/openai.responses` declare a closed `ReasoningEffort`
 # union without it. Add `MAX` here once those connectors are regenerated.
 @display {label: "Reasoning Effort"}
@@ -139,7 +139,12 @@ public enum OPEN_AI_MODEL_NAMES {
     GPT_5_6 = "gpt-5.6",
     GPT_5_6_SOL = "gpt-5.6-sol",
     GPT_5_6_TERRA = "gpt-5.6-terra",
-    GPT_5_6_LUNA = "gpt-5.6-luna"
+    GPT_5_6_LUNA = "gpt-5.6-luna",
+    GPT_6_ASTRA = "gpt-6-astra",
+    GPT_6_SOL = "gpt-6-sol",
+    GPT_6_LUNA = "gpt-6-luna",
+    GPT_6_1_SOL = "gpt-6.1-sol",
+    GPT_6_1_TERRA = "gpt-6.1-terra"
 }
 
 @display {label: "OpenAI Embedding Model Names"}

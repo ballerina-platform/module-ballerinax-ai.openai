@@ -237,6 +237,7 @@ isolated function generateLlmResponse(chat:Client llmClient, OPEN_AI_MODEL_NAMES
     ResponseSchema responseSchema;
     chat:ChatCompletionTool[] tools;
     do {
+        check validateChatCompletionsToolCall(modelType, reasoningEffort);
         content = check generateChatCreationContent(prompt);
         responseSchema = check getExpectedResponseSchema(expectedResponseTypedesc);
         tools = check getGetResultsTool(responseSchema.schema);
