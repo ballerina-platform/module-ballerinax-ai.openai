@@ -132,6 +132,80 @@ function testChatCompletionsChatMalformedToolArgs() {
     test:assertTrue(result is ai:Error);
 }
 
+@test:Config
+function testChatCompletionsChatWithToolsRejectedForResponsesOnlyToolModel() returns ai:Error? {
+    ModelProvider gpt61Provider = check new (API_KEY, GPT_6_1_SOL, SERVICE_URL);
+    ai:ChatUserMessage userMsg = {role: "user", content: "What is the weather in London?"};
+    ai:ChatAssistantMessage|ai:Error result = gpt61Provider->chat(userMsg, weatherTool);
+    if result !is ai:Error {
+        test:assertFail("Expected an error when gpt-6.1-sol is given tools on the Chat Completions API");
+    }
+    test:assertTrue(result.message().includes("only through the Responses API"), result.message());
+}
+
+@test:Config
+function testChatCompletionsGenerateRejectedForResponsesOnlyToolModel() returns ai:Error? {
+    // generate() relies on a forced tool call, so it is subject to the same restriction as chat() with tools.
+    ModelProvider gpt61Provider = check new (API_KEY, GPT_6_1_TERRA, SERVICE_URL);
+    int|ai:Error result = gpt61Provider->generate(`rate this out of 10`);
+    if result !is ai:Error {
+        test:assertFail("Expected generate() to fail for gpt-6.1-terra on the Chat Completions API");
+    }
+    test:assertTrue(result.message().includes("only through the Responses API"), result.message());
+}
+
+@test:Config
+function testChatCompletionsChatWithToolsRejectedWithoutNoneEffort() returns ai:Error? {
+    // gpt-6-luna defaults to `medium` reasoning, which does not allow tools on the Chat Completions API.
+    ModelProvider gpt6LunaProvider = check new (API_KEY, GPT_6_LUNA, SERVICE_URL);
+    ai:ChatUserMessage userMsg = {role: "user", content: "What is the weather in London?"};
+    ai:ChatAssistantMessage|ai:Error result = gpt6LunaProvider->chat(userMsg, weatherTool);
+    if result !is ai:Error {
+        test:assertFail("Expected an error when gpt-6-luna is given tools without 'reasoningEffort = NONE'");
+    }
+    test:assertTrue(result.message().includes("only with 'reasoningEffort = NONE'"), result.message());
+}
+
+@test:Config
+function testChatCompletionsChatWithToolsAllowedWithNoneEffort() returns ai:Error? {
+    ModelProvider gpt6SolProvider = check new (API_KEY, GPT_6_SOL, SERVICE_URL, reasoningEffort = NONE);
+    ai:ChatUserMessage userMsg = {role: "user", content: "What is the weather in London?"};
+    ai:ChatAssistantMessage result = check gpt6SolProvider->chat(userMsg, weatherTool);
+    ai:FunctionCall[]? toolCalls = result.toolCalls;
+    test:assertTrue(toolCalls is ai:FunctionCall[]);
+    if toolCalls is ai:FunctionCall[] {
+        test:assertEquals(toolCalls[0].name, "get_weather");
+    }
+}
+
+// The Responses API has no GPT-6 tool-calling restriction, so every GPT-6 model can use tools and
+// generate() there, at any supported reasoning effort.
+
+@test:Config
+function testResponsesChatWithToolsForGpt6Models() returns ai:Error? {
+    OPEN_AI_MODEL_NAMES[] gpt6Models = [GPT_6_1_SOL, GPT_6_1_TERRA, GPT_6_SOL, GPT_6_LUNA, GPT_6_ASTRA];
+    foreach OPEN_AI_MODEL_NAMES model in gpt6Models {
+        ModelProvider gpt6Provider = check new (API_KEY, model, SERVICE_URL, apiType = RESPONSES);
+        ai:ChatUserMessage userMsg = {role: "user", content: "What is the weather in London?"};
+        ai:ChatAssistantMessage result = check gpt6Provider->chat(userMsg, weatherTool);
+        ai:FunctionCall[]? toolCalls = result.toolCalls;
+        if toolCalls !is ai:FunctionCall[] {
+            test:assertFail(string `Expected a tool call from '${model}' over the Responses API`);
+        }
+        test:assertEquals(toolCalls[0].name, "get_weather");
+    }
+}
+
+@test:Config
+function testResponsesGenerateForGpt6Model() returns ai:Error? {
+    ModelProvider gpt61Provider = check new (API_KEY, GPT_6_1_TERRA, SERVICE_URL,
+            reasoningEffort = HIGH, apiType = RESPONSES);
+    int rating = check gpt61Provider->generate(`Rate this blog out of 10.
+        Title: ${blog1.title}
+        Content: ${blog1.content}`);
+    test:assertEquals(rating, 4);
+}
+
 // ===================================================================
 // Responses API chat() error/status tests
 // ===================================================================

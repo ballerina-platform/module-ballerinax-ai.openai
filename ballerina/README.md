@@ -7,7 +7,7 @@ The OpenAI connector offers APIs for connecting with OpenAI Large Language Model
 ### Key Features
 
 - Connect and interact with OpenAI Large Language Models (LLMs)
-- Support for GPT-5, GPT-4.1, GPT-4o, and other advanced models
+- Support for GPT-6, GPT-5, GPT-4.1, GPT-4o, and other advanced models
 - Efficient handling of conversational prompts and completions
 - Secure communication with API key authentication
 
@@ -41,6 +41,11 @@ import ballerinax/ai.openai;
 
 final ai:ModelProvider openAiModel = check new openai:ModelProvider("openAiApiKey", modelType = openai:GPT_4O);
 ```
+
+> **Note:** Some models are restricted on the default Chat Completions API:
+> - `O3_PRO`, `GPT_5_PRO`, `GPT_5_2_PRO`, `GPT_5_3_CODEX`, `GPT_5_4_PRO` and `GPT_5_5_PRO` are available only with `apiType = openai:RESPONSES`.
+> - Tool calling and `generate()` with `GPT_6_ASTRA`, `GPT_6_1_SOL` and `GPT_6_1_TERRA` require `apiType = openai:RESPONSES`.
+> - Tool calling and `generate()` with the `GPT_5_6` family, `GPT_6_SOL` and `GPT_6_LUNA` require `reasoningEffort = openai:NONE`, or `apiType = openai:RESPONSES`.
 
 ### Step 4: Invoke chat completion
 

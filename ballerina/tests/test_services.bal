@@ -26,10 +26,14 @@ service /llm on new http:Listener(8080) {
     resource function post openai/chat/completions(@http:Payload json payload)
                 returns chat:CreateChatCompletionResponse|error {
         string model = check payload.model.ensureType();
-        // The chat-completions path is exercised by the GPT_4_1 provider and the reasoning-capable
-        // GPT_5 provider.
-        test:assertTrue(model == GPT_4_1 || model == GPT_5,
+        // The chat-completions path is exercised by the GPT_4_1 provider, the reasoning-capable
+        // GPT_5 provider and the GPT_6_SOL provider, which may only call tools with reasoning disabled.
+        test:assertTrue(model == GPT_4_1 || model == GPT_5 || model == GPT_6_SOL,
                 string `Unexpected model in chat/completions request: ${model}`);
+        if model == GPT_6_SOL {
+            test:assertEquals(check payload.reasoning_effort, "none",
+                    "gpt-6-sol must only reach chat/completions with reasoning disabled");
+        }
         chat:ChatCompletionRequestMessage[] messages = check (check payload.messages).fromJsonWithType();
 
         // Determine if this is a generate() call (has getResults tool) or a chat() call

@@ -19,6 +19,10 @@ import ballerina/test;
 import ballerinax/openai.chat;
 import ballerinax/openai.responses;
 
+// ===================================================================
+// Shared test fixtures
+// ===================================================================
+
 final ai:ChatCompletionFunctions[] sampleTools = [
     {
         name: "get_weather",
@@ -45,8 +49,10 @@ function testSupportsReasoning() {
     test:assertTrue(supportsReasoning(GPT_5));
     test:assertTrue(supportsReasoning(GPT_5_MINI));
     test:assertTrue(supportsReasoning(GPT_5_6_SOL));
-    test:assertTrue(supportsReasoning(GPT_5_6_LUNA));
     test:assertTrue(supportsReasoning(GPT_5_5_PRO));
+    test:assertTrue(supportsReasoning(GPT_5_6_LUNA));
+    test:assertTrue(supportsReasoning(GPT_6_ASTRA));
+    test:assertTrue(supportsReasoning(GPT_6_1_TERRA));
     test:assertFalse(supportsReasoning(GPT_4O));
     test:assertFalse(supportsReasoning(GPT_4_1));
 }
@@ -58,6 +64,9 @@ function testValidateReasoningEffortAcceptsSupportedEfforts() {
     test:assertTrue(validateReasoningEffort(GPT_5_2, XHIGH) is ());
     test:assertTrue(validateReasoningEffort(GPT_5_PRO, HIGH) is ());
     test:assertTrue(validateReasoningEffort(GPT_5_6_SOL, XHIGH) is ());
+    test:assertTrue(validateReasoningEffort(GPT_6_ASTRA, XHIGH) is ());
+    test:assertTrue(validateReasoningEffort(GPT_6_1_TERRA, NONE) is ());
+    test:assertTrue(validateReasoningEffort(GPT_6_LUNA, NONE) is ());
     // No reasoning effort at all is always valid.
     test:assertTrue(validateReasoningEffort(GPT_4O, ()) is ());
     test:assertTrue(validateReasoningEffort(GPT_5, ()) is ());
@@ -75,6 +84,53 @@ function testValidateReasoningEffortRejectsUnsupportedEfforts() {
     test:assertTrue(validateReasoningEffort(GPT_5_PRO, LOW) is ai:Error);
     // The `*-pro` models do not accept the lower levels.
     test:assertTrue(validateReasoningEffort(GPT_5_5_PRO, NONE) is ai:Error);
+    // gpt-6-astra and gpt-6.1-sol cannot disable reasoning, and no gpt-6 model accepts `minimal`.
+    test:assertTrue(validateReasoningEffort(GPT_6_ASTRA, NONE) is ai:Error);
+    test:assertTrue(validateReasoningEffort(GPT_6_1_SOL, NONE) is ai:Error);
+    test:assertTrue(validateReasoningEffort(GPT_6_SOL, MINIMAL) is ai:Error);
+}
+
+@test:Config
+function testValidateChatCompletionsToolCall() {
+    // Models without a Chat Completions tool-calling restriction.
+    test:assertTrue(validateChatCompletionsToolCall(GPT_4_1, ()) is ());
+    test:assertTrue(validateChatCompletionsToolCall(GPT_5_5, MEDIUM) is ());
+    // gpt-6-astra and gpt-6.1-sol/terra need the Responses API for tools, whatever the effort.
+    test:assertTrue(validateChatCompletionsToolCall(GPT_6_ASTRA, HIGH) is ai:Error);
+    test:assertTrue(validateChatCompletionsToolCall(GPT_6_1_SOL, ()) is ai:Error);
+    test:assertTrue(validateChatCompletionsToolCall(GPT_6_1_TERRA, NONE) is ai:Error);
+    // The gpt-5.6 family and gpt-6-sol/luna accept tools only with reasoning disabled.
+    test:assertTrue(validateChatCompletionsToolCall(GPT_5_6, NONE) is ());
+    test:assertTrue(validateChatCompletionsToolCall(GPT_5_6, ()) is ai:Error);
+    test:assertTrue(validateChatCompletionsToolCall(GPT_5_6_SOL, NONE) is ());
+    test:assertTrue(validateChatCompletionsToolCall(GPT_5_6_TERRA, LOW) is ai:Error);
+    test:assertTrue(validateChatCompletionsToolCall(GPT_5_6_LUNA, MEDIUM) is ai:Error);
+    test:assertTrue(validateChatCompletionsToolCall(GPT_6_SOL, NONE) is ());
+    test:assertTrue(validateChatCompletionsToolCall(GPT_6_LUNA, NONE) is ());
+    test:assertTrue(validateChatCompletionsToolCall(GPT_6_SOL, ()) is ai:Error);
+    test:assertTrue(validateChatCompletionsToolCall(GPT_6_LUNA, LOW) is ai:Error);
+}
+
+@test:Config
+function testValidateApiType() {
+    // Responses-only models are rejected on the Chat Completions API.
+    OPEN_AI_MODEL_NAMES[] responsesOnlyModels = [O3_PRO, GPT_5_PRO, GPT_5_2_PRO, GPT_5_3_CODEX, GPT_5_4_PRO, GPT_5_5_PRO];
+    foreach OPEN_AI_MODEL_NAMES model in responsesOnlyModels {
+        test:assertTrue(validateApiType(model, CHAT_COMPLETIONS) is ai:Error, model);
+        test:assertTrue(validateApiType(model, RESPONSES) is (), model);
+    }
+    // Other models are available on both APIs.
+    test:assertTrue(validateApiType(GPT_5_5, CHAT_COMPLETIONS) is ());
+    test:assertTrue(validateApiType(O3, CHAT_COMPLETIONS) is ());
+}
+
+@test:Config
+function testInitFailsForResponsesOnlyModelOnChatCompletions() {
+    ModelProvider|ai:Error result = new (API_KEY, GPT_5_3_CODEX, SERVICE_URL);
+    if result !is ai:Error {
+        test:assertFail("Expected initialization to fail for a Responses-only model on the Chat Completions API");
+    }
+    test:assertTrue(result.message().includes("available only through the Responses API"), result.message());
 }
 
 @test:Config
