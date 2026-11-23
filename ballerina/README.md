@@ -42,6 +42,29 @@ import ballerinax/ai.openai;
 final ai:ModelProvider openAiModel = check new openai:ModelProvider("openAiApiKey", modelType = openai:GPT_4O);
 ```
 
+The first argument, `apiKey`, sets how the connector authenticates with the OpenAI API. It keeps its name so that existing code still compiles, but it accepts any of the following. The same options apply to `openai:EmbeddingProvider`.
+
+- **API key** (`string`): sent in the `Authorization: Bearer` header, as in the example above.
+
+- **API key with an organization or project** (`openai:ApiKeyConfig`): sends `organization` in the `OpenAI-Organization` header and `project` in the `OpenAI-Project` header, so usage is counted for that organization and project. Set them when your user belongs to more than one organization or accesses projects through a legacy user API key.
+
+    ```ballerina
+    final ai:ModelProvider openAiModel = check new openai:ModelProvider(
+        {apiKey: "openAiApiKey", organization: "org-...", project: "proj_..."}, openai:GPT_4O);
+    ```
+
+- **Workload Identity Federation** (`openai:WorkloadIdentityConfig`): exchanges an identity token from your identity provider (for example, AWS, Google Cloud, Microsoft Entra ID, Kubernetes, or GitHub Actions) for a short-lived OpenAI access token, so no API key is needed. The connector reuses the access token until it is about to expire, then exchanges the identity token again. An access token never outlives the identity token, and a rejected identity token is not exchanged again, so once the identity token expires or is rejected, create a new model provider with a new identity token. See [Workload identity federation](https://developers.openai.com/api/docs/guides/workload-identity-federation) for how to set up the workload identity provider and service account mapping.
+
+    ```ballerina
+    final ai:ModelProvider openAiModel = check new openai:ModelProvider({
+        identityProviderId: "<workload identity provider ID>",
+        serviceAccountId: "<service account ID>",
+        identityToken: "<identity token (JWT) from your identity provider>"
+    }, openai:GPT_4O);
+    ```
+
+- **Access token** (`http:BearerTokenConfig`): an access token obtained elsewhere, sent in the `Authorization: Bearer` header. The connector does not refresh it, so requests fail once it expires.
+
 > **Note:** Some models are restricted on the default Chat Completions API:
 > - `O3_PRO`, `GPT_5_PRO`, `GPT_5_2_PRO`, `GPT_5_3_CODEX`, `GPT_5_4_PRO` and `GPT_5_5_PRO` are available only with `apiType = openai:RESPONSES`.
 > - Tool calling and `generate()` with `GPT_6_ASTRA`, `GPT_6_1_SOL` and `GPT_6_1_TERRA` require `apiType = openai:RESPONSES`.

@@ -22,27 +22,31 @@ import ballerinax/openai.embeddings;
 public distinct isolated client class EmbeddingProvider {
     *ai:EmbeddingProvider;
     private final embeddings:Client embeddingsClient;
+    private final AuthProvider authProvider;
     private final string modelType;
 
     # Initializes the OpenAI embedding model with the given connection configuration.
     #
-    # + apiKey - The OpenAI API key
+    # + apiKey - How to authenticate with the OpenAI API: an API key (`string`), an API key with an organization or
+    #            project (`ApiKeyConfig`), Workload Identity Federation (`WorkloadIdentityConfig`), or an access token
+    #            (`http:BearerTokenConfig`), which is not refreshed
     # + modelType - The OpenAI embedding model name
     # + serviceUrl - The base URL of OpenAI API endpoint
     # + connectionConfig - Additional HTTP connection configuration
     # + return - `nil` on successful initialization; otherwise, returns an `ai:Error`
-    public isolated function init(@display {label: "API Key"} string apiKey,
+    public isolated function init(
+            @display {label: "Authentication"} AuthConfig apiKey,
             @display {label: "Embedding Model Type"} OPEN_AI_EMBEDDING_MODEL_NAMES modelType,
             @display {label: "Service URL"} string serviceUrl = DEFAULT_OPENAI_SERVICE_URL,
             @display {label: "Connection Configuration"} *ConnectionConfig connectionConfig) returns ai:Error? {
+        self.authProvider = check createAuthProvider(apiKey, toHttpClientConfig(connectionConfig));
+        // The connector client is created without `auth`, so that the authentication headers from the
+        // `authProvider`, passed with each request, are not overwritten.
         embeddings:ClientHttp1Settings?|error http1Settings = connectionConfig?.http1Settings.cloneWithType();
         if http1Settings is error {
             return error ai:Error("Failed to clone http1Settings", http1Settings);
         }
         embeddings:ConnectionConfig openAiConfig = {
-            auth: {
-                token: apiKey
-            },
             httpVersion: connectionConfig.httpVersion,
             http1Settings: http1Settings,
             http2Settings: connectionConfig.http2Settings,
@@ -85,7 +89,9 @@ public distinct isolated client class EmbeddingProvider {
                 input: chunk.content
             };
             span.addInputContent(chunk.content);
-            embeddings:CreateEmbeddingResponse response = check self.embeddingsClient->/embeddings.post(request);
+            map<string> & readonly authHeaders = check self.authProvider.getHeaders();
+            embeddings:CreateEmbeddingResponse response =
+                check self.embeddingsClient->/embeddings.post(request, authHeaders);
             span.addInputTokenCount(response.usage.prompt_tokens);
             span.addResponseModel(response.model);
 
@@ -119,7 +125,9 @@ public distinct isolated client class EmbeddingProvider {
                 input
             };
             span.addInputContent(input);
-            embeddings:CreateEmbeddingResponse response = check self.embeddingsClient->/embeddings.post(request);
+            map<string> & readonly authHeaders = check self.authProvider.getHeaders();
+            embeddings:CreateEmbeddingResponse response =
+                check self.embeddingsClient->/embeddings.post(request, authHeaders);
             span.addInputTokenCount(response.usage.prompt_tokens);
             span.addResponseModel(response.model);
 

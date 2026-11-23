@@ -189,6 +189,7 @@ isolated function convertContentPartsForResponses(DocumentContentPart[] parts) r
 # Uses the same getResults tool-forcing pattern with flat tool definitions.
 #
 # + responsesClient - The chat client for the Responses API
+# + authProvider - Provides the authentication headers for the request
 # + modelType - The model to use
 # + temperature - The sampling temperature for the response
 # + maxTokens - The maximum number of tokens to generate in the response
@@ -196,8 +197,8 @@ isolated function convertContentPartsForResponses(DocumentContentPart[] parts) r
 # + prompt - The user prompt
 # + expectedResponseTypedesc - The expected response type descriptor
 # + return - The parsed response or an error
-isolated function generateLlmResponseViaResponses(responses:Client responsesClient, OPEN_AI_MODEL_NAMES modelType,
-        decimal? temperature, int maxTokens, ReasoningEffort? reasoningEffort,
+isolated function generateLlmResponseViaResponses(responses:Client responsesClient, AuthProvider authProvider,
+        OPEN_AI_MODEL_NAMES modelType, decimal? temperature, int maxTokens, ReasoningEffort? reasoningEffort,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc)
         returns anydata|ai:Error {
     observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
@@ -266,7 +267,13 @@ isolated function generateLlmResponseViaResponses(responses:Client responsesClie
 
     span.addInputMessages([inputMessage].toJson());
 
-    responses:Response|error response = responsesClient->/responses.post(request);
+    map<string> & readonly|ai:Error authHeaders = authProvider.getHeaders();
+    if authHeaders is ai:Error {
+        span.close(authHeaders);
+        return authHeaders;
+    }
+    responses:Response|error response =
+        responsesClient->/responses.post(request, authHeaders);
     if response is error {
         ai:Error err = error("LLM call failed: " + response.message(), detail = response.detail(), cause = response.cause());
         span.close(err);

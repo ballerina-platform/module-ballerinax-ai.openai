@@ -40,6 +40,7 @@ public class Generator {
             return env.getRuntime().callFunction(
                     MODULE, "generateLlmResponseViaResponses", null,
                     modelProvider.get(StringUtils.fromString("responsesClient")),
+                    modelProvider.get(StringUtils.fromString("authProvider")),
                     modelProvider.get(StringUtils.fromString("modelType")),
                     modelProvider.get(StringUtils.fromString("temperature")),
                     modelProvider.get(StringUtils.fromString("maxTokens")),
@@ -51,6 +52,7 @@ public class Generator {
         return env.getRuntime().callFunction(
                 MODULE, "generateLlmResponse", null,
                 modelProvider.get(StringUtils.fromString("llmClient")),
+                modelProvider.get(StringUtils.fromString("authProvider")),
                 modelProvider.get(StringUtils.fromString("modelType")),
                 modelProvider.get(StringUtils.fromString("temperature")),
                 modelProvider.get(StringUtils.fromString("maxTokens")),
