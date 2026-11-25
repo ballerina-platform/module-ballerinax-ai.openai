@@ -261,6 +261,51 @@ function testBearerTokenAuth() returns error? {
 }
 
 @test:Config
+function testBearerTokenIsTrimmed() returns error? {
+    string testId = "bearer-token-trimmed";
+    ModelProvider provider = check new ({token: string ` access-token-from-elsewhere${"\n"}`}, GPT_4_1,
+        authServiceUrl(testId));
+    _ = check provider->chat([{role: ai:USER, content: "Hi"}]);
+    check assertAuthHeaders(testId, ["chat"], "Bearer access-token-from-elsewhere");
+}
+
+@test:Config
+function testEmptyBearerTokenFails() {
+    foreach string token in ["", " \n"] {
+        ModelProvider|ai:Error provider = new ({token}, GPT_4_1);
+        if provider !is ai:Error {
+            test:assertFail("Expected an ai:Error for an empty access token");
+        }
+        test:assertEquals(provider.message(), "The OpenAI access token is empty");
+        EmbeddingProvider|ai:Error embeddingProvider = new ({token}, TEXT_EMBEDDING_3_SMALL);
+        if embeddingProvider !is ai:Error {
+            test:assertFail("Expected an ai:Error for an empty access token");
+        }
+        test:assertEquals(embeddingProvider.message(), "The OpenAI access token is empty");
+    }
+}
+
+@test:Config
+function testBlankOrganizationAndProjectAreNotSent() returns error? {
+    // A common pattern is `configurable string organization = "";`, which must not send an empty header.
+    string testId = "blank-organization-project";
+    ModelProvider provider = check new ({apiKey: AUTH_API_KEY, organization: "", project: " "}, GPT_4_1,
+        authServiceUrl(testId));
+    check callChatAndGenerate(provider);
+    check assertAuthHeaders(testId, ["chat", "generate"], string `Bearer ${AUTH_API_KEY}`);
+    EmbeddingProvider embeddingProvider = check new ({apiKey: AUTH_API_KEY, organization: " ", project: ""},
+        TEXT_EMBEDDING_3_SMALL, authServiceUrl(testId));
+    _ = check embeddingProvider->embed(<ai:TextChunk>{content: "Hello"});
+    check assertAuthHeaders(testId, ["embed"], string `Bearer ${AUTH_API_KEY}`);
+    // Surrounding spaces are trimmed.
+    string trimmedId = "trimmed-organization-project";
+    ModelProvider trimmedProvider = check new ({apiKey: AUTH_API_KEY, organization: string ` ${ORGANIZATION_ID} `,
+        project: string `${PROJECT_ID}${"\n"}`}, GPT_4_1, authServiceUrl(trimmedId));
+    _ = check trimmedProvider->chat([{role: ai:USER, content: "Hi"}]);
+    check assertAuthHeaders(trimmedId, ["chat"], string `Bearer ${AUTH_API_KEY}`, ORGANIZATION_ID, PROJECT_ID);
+}
+
+@test:Config
 function testApiKeyIsTrimmed() returns error? {
     string testId = "api-key-trimmed";
     // A key read from a file or an environment variable may end with a newline.
@@ -408,15 +453,16 @@ function sendWithCurrentClient(string testId, WorkloadIdentityClientProvider pro
     return getAuthHeader(testId, "chat", "authorization");
 }
 
-function getAccessTokensConcurrently(WorkloadIdentityClientProvider provider, int count) returns (string|ai:Error)[] {
-    future<string|ai:Error>[] calls = [];
+function getClientsConcurrently(WorkloadIdentityClientProvider provider, int count)
+        returns (ConnectorClient|ai:Error)[] {
+    future<ConnectorClient|ai:Error>[] calls = [];
     foreach int i in 0 ..< count {
-        future<string|ai:Error> call = start provider.getAccessToken();
+        future<ConnectorClient|ai:Error> call = start provider.getClient();
         calls.push(call);
     }
-    (string|ai:Error)[] results = [];
-    foreach future<string|ai:Error> call in calls {
-        string|ai:Error result = wait call;
+    (ConnectorClient|ai:Error)[] results = [];
+    foreach future<ConnectorClient|ai:Error> call in calls {
+        ConnectorClient|ai:Error result = wait call;
         results.push(result);
     }
     return results;
@@ -481,11 +527,11 @@ function testWorkloadIdentityRefreshesShortLivedAccessTokenHalfwayThrough() retu
     // A 100-second access token is inside the 120-second refresh buffer from the start, so it is refreshed
     // halfway through its lifetime instead.
     WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId, expiresIn = 100);
-    _ = check provider.getAccessToken();
+    _ = check provider.getClient();
     advanceFakeClock(testId, 49);
-    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-1`);
+    test:assertEquals(check sendWithCurrentClient(testId, provider), string `Bearer wif-access-token-${testId}-1`);
     advanceFakeClock(testId, 2);
-    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-2`);
+    test:assertEquals(check sendWithCurrentClient(testId, provider), string `Bearer wif-access-token-${testId}-2`);
 }
 
 @test:Config
@@ -493,7 +539,7 @@ function testWorkloadIdentityUsesCachedTokenWhenRefreshFails() returns error? {
     string testId = "wif-refresh-fails";
     // The first exchange succeeds and the rest fail. The cached access token is used until 570 seconds.
     WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId, failAfter = 1);
-    _ = check provider.getAccessToken();
+    _ = check provider.getClient();
     advanceFakeClock(testId, 481);
     // The client for the cached access token keeps being used.
     test:assertEquals(check sendWithCurrentClient(testId, provider), string `Bearer wif-access-token-${testId}-1`);
@@ -512,9 +558,9 @@ function testWorkloadIdentityRechecksExpiryAfterRefreshFails() returns error? {
     // so the cached access token must not be returned.
     WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId, failAfter = 1,
         clockAdvance = 100);
-    _ = check provider.getAccessToken();
+    _ = check provider.getClient();
     advanceFakeClock(testId, 481);
-    string|ai:Error result = provider.getAccessToken();
+    ConnectorClient|ai:Error result = provider.getClient();
     if result !is ai:LlmError {
         test:assertFail("Expected an ai:LlmError once the access token is inside the expiry buffer");
     }
@@ -541,7 +587,7 @@ function testWorkloadIdentityStopsExchangingAfterRejection() returns error? {
     // without calling the token endpoint again. The token endpoint takes 0.2 seconds to fail, so the concurrent
     // requests wait for the first exchange.
     WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId, failAfter = -1, failDelay = 0.2);
-    foreach string|ai:Error result in getAccessTokensConcurrently(provider, 10) {
+    foreach ConnectorClient|ai:Error result in getClientsConcurrently(provider, 10) {
         if result !is ai:LlmError {
             test:assertFail("Expected an ai:LlmError");
         }
@@ -549,7 +595,7 @@ function testWorkloadIdentityStopsExchangingAfterRejection() returns error? {
             result.message());
     }
     advanceFakeClock(testId, 3600);
-    string|ai:Error later = provider.getAccessToken();
+    ConnectorClient|ai:Error later = provider.getClient();
     if later !is ai:LlmError {
         test:assertFail("Expected an ai:LlmError after the backoff period");
     }
@@ -561,17 +607,19 @@ function testWorkloadIdentityBacksOffAfterFailedRefresh() returns error? {
     string testId = "wif-backoff";
     // The token endpoint is unavailable after the first exchange, a failure that may be temporary.
     WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId, failAfter = 1, unavailable = true);
-    _ = check provider.getAccessToken();
-    // At 568 seconds, concurrent requests make one failed refresh between them and use the cached access token.
+    ConnectorClient firstClient = check provider.getClient();
+    // At 568 seconds, concurrent requests make one failed refresh between them and use the client for the cached
+    // access token.
     advanceFakeClock(testId, 568);
-    foreach string|ai:Error result in getAccessTokensConcurrently(provider, 10) {
-        test:assertEquals(check result, string `wif-access-token-${testId}-1`);
+    foreach ConnectorClient|ai:Error result in getClientsConcurrently(provider, 10) {
+        test:assertTrue(check result === firstClient, "Expected the client for the cached access token");
     }
+    test:assertEquals(check sendWithCurrentClient(testId, provider), string `Bearer wif-access-token-${testId}-1`);
     test:assertEquals(getTokenExchangeRequests(testId).length(), 2);
     // At 571 seconds, the cached access token is past its fallback window, and the request inside the backoff
     // period returns the recorded error without calling the token endpoint.
     advanceFakeClock(testId, 3);
-    string|ai:Error result = provider.getAccessToken();
+    ConnectorClient|ai:Error result = provider.getClient();
     if result !is ai:LlmError {
         test:assertFail("Expected the recorded ai:LlmError inside the backoff period");
     }
@@ -579,11 +627,33 @@ function testWorkloadIdentityBacksOffAfterFailedRefresh() returns error? {
     test:assertEquals(getTokenExchangeRequests(testId).length(), 2);
     // At 574 seconds, the backoff period is over, and the token endpoint is called again.
     advanceFakeClock(testId, 3);
-    string|ai:Error retried = provider.getAccessToken();
+    ConnectorClient|ai:Error retried = provider.getClient();
     if retried !is ai:LlmError {
         test:assertFail("Expected an ai:LlmError from the token endpoint");
     }
     test:assertEquals(getTokenExchangeRequests(testId).length(), 3);
+}
+
+@test:Config
+function testWorkloadIdentityRejectsNonPositiveLifetime() returns error? {
+    string testId = "wif-zero-lifetime";
+    // An access token with `expires_in` 0 would be refreshed on every request. It is treated as a failed exchange
+    // that may be temporary, so the token endpoint is not called again inside the backoff period.
+    WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId, expiresIn = 0);
+    foreach int i in 0 ..< 3 {
+        ConnectorClient|ai:Error result = provider.getClient();
+        if result !is ai:LlmError {
+            test:assertFail("Expected an ai:LlmError for an access token with expires_in 0");
+        }
+        test:assertTrue(result.message().includes("expires_in is 0"), result.message());
+    }
+    test:assertEquals(getTokenExchangeRequests(testId).length(), 1);
+    advanceFakeClock(testId, 6);
+    ConnectorClient|ai:Error retried = provider.getClient();
+    if retried !is ai:LlmError {
+        test:assertFail("Expected an ai:LlmError after the backoff period");
+    }
+    test:assertEquals(getTokenExchangeRequests(testId).length(), 2);
 }
 
 @test:Config

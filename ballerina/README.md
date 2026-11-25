@@ -63,6 +63,8 @@ The first argument, `apiKey`, sets how the connector authenticates with the Open
     }, openai:GPT_4O);
     ```
 
+    A module-level `final` provider, as above, cannot be replaced. Use one only when the identity token outlives the application. Many identity tokens expire within an hour, for example Kubernetes projected service account tokens and GitHub Actions OIDC tokens. For those, create the provider where you can replace it, and create a new one with a new identity token before the old identity token expires.
+
 - **Access token** (`http:BearerTokenConfig`): an access token obtained elsewhere, sent in the `Authorization: Bearer` header. The connector does not refresh it, so requests fail once it expires.
 
 > **Note:** Some models are restricted on the default Chat Completions API:

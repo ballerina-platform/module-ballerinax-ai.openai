@@ -165,8 +165,7 @@ isolated class WorkloadIdentityClientProvider {
     private final string identityToken;
     private final ClientFactory clientFactory;
     private final WorkloadIdentityTimings & readonly timings;
-    private string? accessToken = ();
-    // The connector client that sends `accessToken`.
+    // The connector client that sends the cached access token.
     private ConnectorClient? connectorClient = ();
     // The monotonic time, in seconds, after which the cached access token is refreshed.
     private decimal refreshAt = 0;
@@ -189,22 +188,9 @@ isolated class WorkloadIdentityClientProvider {
         self.timings = timings;
     }
 
-    isolated function getClient() returns ConnectorClient|ai:Error {
-        _ = check self.getAccessToken();
-        lock {
-            // Set together with the access token, so it is set once `getAccessToken` succeeds. A concurrent refresh
-            // may have replaced it since, with a client for a newer access token.
-            ConnectorClient? connectorClient = self.connectorClient;
-            if connectorClient is () {
-                return error ai:Error("The OpenAI client is not initialized");
-            }
-            return connectorClient;
-        }
-    }
-
-    # Returns the cached access token, exchanging the identity token for a new one and creating a client for it when
-    # the cached access token is about to expire. The exchange runs inside the lock so that concurrent requests
-    # trigger only one exchange.
+    # Returns the client for the cached access token. When the cached access token is about to expire, exchanges
+    # the identity token for a new one and creates a client for it. The exchange runs inside the lock so that
+    # concurrent requests trigger only one exchange.
     #
     # While an exchange runs, every other request through this provider waits for it, even when the cached access
     # token is still valid. An exchange happens about once per access token lifetime, and if the token endpoint
@@ -212,24 +198,24 @@ isolated class WorkloadIdentityClientProvider {
     # default), because the exchange is not retried.
     #
     # A failed refresh is recorded, so requests queued behind it do not call the token endpoint again. They use
-    # the cached access token and its client while the access token is still valid, or return the recorded error.
+    # the client for the cached access token while the access token is still valid, or return the recorded error.
     # After an error that may be temporary, the refresh is tried again after the backoff period. After the token
     # endpoint rejects the identity token, it is never tried again.
     #
-    # + return - The access token, or an `ai:Error` if the refresh fails
-    isolated function getAccessToken() returns string|ai:Error {
+    # + return - The connector client, or an `ai:Error` if the refresh fails
+    isolated function getClient() returns ConnectorClient|ai:Error {
         WorkloadIdentityTimings & readonly timings = self.timings;
         Clock clock = timings.clock;
         ClientFactory clientFactory = self.clientFactory;
         lock {
             decimal now = clock();
-            string? cachedToken = self.accessToken;
-            if cachedToken is string && now < self.refreshAt {
-                return cachedToken;
+            ConnectorClient? cachedClient = self.connectorClient;
+            if cachedClient !is () && now < self.refreshAt {
+                return cachedClient;
             }
             ai:Error? recordedError = self.rejectedError ?: (now < self.retryAfter ? self.lastError : ());
             if recordedError is ai:Error {
-                return cachedToken is string && now < self.usableUntil ? cachedToken : recordedError;
+                return cachedClient !is () && now < self.usableUntil ? cachedClient : recordedError;
             }
             TokenExchangeResponse|ai:Error response =
                 exchangeIdentityToken(self.tokenClient, self.exchangeParams, self.identityToken);
@@ -247,17 +233,16 @@ isolated class WorkloadIdentityClientProvider {
                     self.lastError = refreshError;
                     self.retryAfter = failedAt + timings.backoffSeconds;
                 }
-                // Keep using the cached access token and its client while the access token is still valid.
-                return cachedToken is string && failedAt < self.usableUntil ? cachedToken : refreshError;
+                // Keep using the client for the cached access token while the access token is still valid.
+                return cachedClient !is () && failedAt < self.usableUntil ? cachedClient : refreshError;
             }
             decimal expiresIn = <decimal>response.expires_in;
-            self.accessToken = response.access_token;
             self.connectorClient = newClient;
             self.refreshAt = now + expiresIn - decimal:min(timings.refreshBufferSeconds, expiresIn / 2);
             self.usableUntil = now + expiresIn - decimal:min(timings.expiryBufferSeconds, expiresIn / 4);
             self.lastError = ();
             self.retryAfter = 0;
-            return response.access_token;
+            return newClient;
         }
     }
 }
@@ -265,18 +250,19 @@ isolated class WorkloadIdentityClientProvider {
 # Returns the headers to send with every request, other than `Authorization`, which the connector client sends.
 #
 # + auth - The authentication configuration
-# + return - The `OpenAI-Organization` and `OpenAI-Project` headers of an `ApiKeyConfig`, or no headers
+# + return - The `OpenAI-Organization` and `OpenAI-Project` headers of an `ApiKeyConfig`, or no headers. An empty or
+# blank organization or project is not sent
 isolated function getAuthHeaders(AuthConfig auth) returns map<string> & readonly {
     if auth !is ApiKeyConfig {
         return {};
     }
     map<string> headers = {};
-    string? organization = auth.organization;
-    if organization is string {
+    string organization = (auth.organization ?: "").trim();
+    if organization != "" {
         headers[ORGANIZATION_HEADER] = organization;
     }
-    string? project = auth.project;
-    if project is string {
+    string project = (auth.project ?: "").trim();
+    if project != "" {
         headers[PROJECT_HEADER] = project;
     }
     return headers.cloneReadOnly();
@@ -292,13 +278,15 @@ isolated function createClientProvider(AuthConfig auth, ClientFactory clientFact
         http:ClientConfiguration tokenClientConfig) returns ClientProvider|ai:Error {
     if auth is string {
         // Sent in the `Authorization: Bearer` header, as in 1.x, so existing users see no change on the wire.
-        return new StaticClientProvider(check clientFactory(check validateApiKey(auth)));
+        return new StaticClientProvider(check clientFactory(check validateToken(auth, "The OpenAI API key is empty")));
     }
     if auth is ApiKeyConfig {
-        return new StaticClientProvider(check clientFactory(check validateApiKey(auth.apiKey)));
+        return new StaticClientProvider(
+            check clientFactory(check validateToken(auth.apiKey, "The OpenAI API key is empty")));
     }
     if auth is http:BearerTokenConfig {
-        return new StaticClientProvider(check clientFactory(auth.token));
+        return new StaticClientProvider(
+            check clientFactory(check validateToken(auth.token, "The OpenAI access token is empty")));
     }
 
     // The access token is obtained on the first request. Create a client now as well, so that an invalid
@@ -344,6 +332,11 @@ isolated function exchangeIdentityToken(http:Client tokenClient, TokenExchangePa
         }
         return error ai:LlmError("Unexpected response from the OpenAI token exchange endpoint", response);
     }
+    if response.expires_in <= 0 {
+        // Otherwise the access token would be refreshed on every request, inside the lock.
+        return error ai:LlmError(string `The OpenAI token exchange endpoint returned an access token with an invalid `
+            + string `lifetime: expires_in is ${response.expires_in}`);
+    }
     return response;
 }
 
@@ -362,14 +355,16 @@ isolated function isIdentityTokenRejected(ai:Error err) returns boolean {
     return statusCode >= 400 && statusCode < 500 && statusCode != 408 && statusCode != 429;
 }
 
-# Trims an API key, so a key read from a file or an environment variable with a trailing newline still works.
+# Trims an API key or access token, so a value read from a file or an environment variable with a trailing newline
+# still works.
 #
-# + apiKey - The API key
-# + return - The trimmed API key, or an `ai:Error` if it is empty
-isolated function validateApiKey(string apiKey) returns string|ai:Error {
-    string trimmed = apiKey.trim();
+# + token - The API key or access token
+# + emptyMessage - The error message if it is empty
+# + return - The trimmed API key or access token, or an `ai:Error` if it is empty
+isolated function validateToken(string token, string emptyMessage) returns string|ai:Error {
+    string trimmed = token.trim();
     if trimmed == "" {
-        return error ai:Error("The OpenAI API key is empty");
+        return error ai:Error(emptyMessage);
     }
     return trimmed;
 }
