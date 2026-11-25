@@ -379,25 +379,36 @@ function testWorkloadIdentityReusesShortLivedAccessToken() returns error? {
     test:assertEquals(getTokenExchangeRequests(testId).length(), 1);
 }
 
-// The timing tests below create a `WorkloadIdentityAuthProvider` with a fake clock and move the clock forward, so
+// The timing tests below create a `WorkloadIdentityClientProvider` with a fake clock and move the clock forward, so
 // they check when the access token is refreshed, reused and given up without waiting. They use the default timing
 // settings: an access token that expires in 600 seconds is refreshed after 480 seconds, and is used until 570
 // seconds if the refresh fails. After a temporary failure, the token endpoint is not called again for 5 seconds.
 
 function workloadIdentityProvider(string testId, int expiresIn = 600, int failAfter = 0,
         decimal? clockAdvance = (), decimal? failDelay = (), boolean unavailable = false)
-        returns WorkloadIdentityAuthProvider|error {
+        returns WorkloadIdentityClientProvider|error {
     http:Client tokenClient = check new (tokenUrl(testId, expiresIn, failAfter, failDelay, unavailable,
         clockAdvance));
     Clock clock = isolated function() returns decimal => fakeNow(testId);
+    final string serviceUrl = authServiceUrl(testId);
+    ClientFactory clientFactory = isolated function(string token) returns ConnectorClient|ai:Error =>
+        createChatClient(token, serviceUrl, {});
     return new (tokenClient, {
         subject_token_type: JWT,
         identity_provider_id: IDENTITY_PROVIDER_ID,
         service_account_id: SERVICE_ACCOUNT_ID
-    }, IDENTITY_TOKEN, {clock});
+    }, IDENTITY_TOKEN, clientFactory, {clock});
 }
 
-function getAccessTokensConcurrently(WorkloadIdentityAuthProvider provider, int count) returns (string|ai:Error)[] {
+// Sends a chat completion request with the provider's current client, and returns the `Authorization` header that
+// the mock received.
+function sendWithCurrentClient(string testId, WorkloadIdentityClientProvider provider) returns string?|error {
+    chat:Client llmClient = check getChatClient(provider);
+    _ = check llmClient->/chat/completions.post({model: GPT_4_1, messages: [{role: "user", content: "Hi"}]});
+    return getAuthHeader(testId, "chat", "authorization");
+}
+
+function getAccessTokensConcurrently(WorkloadIdentityClientProvider provider, int count) returns (string|ai:Error)[] {
     future<string|ai:Error>[] calls = [];
     foreach int i in 0 ..< count {
         future<string|ai:Error> call = start provider.getAccessToken();
@@ -414,14 +425,54 @@ function getAccessTokensConcurrently(WorkloadIdentityAuthProvider provider, int 
 @test:Config
 function testWorkloadIdentityRefreshesAccessTokenBeforeExpiry() returns error? {
     string testId = "wif-refresh";
-    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId);
-    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-1`);
+    WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId);
+    test:assertEquals(check sendWithCurrentClient(testId, provider), string `Bearer wif-access-token-${testId}-1`);
+    ConnectorClient firstClient = check provider.getClient();
     advanceFakeClock(testId, 479);
-    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-1`);
+    test:assertEquals(check sendWithCurrentClient(testId, provider), string `Bearer wif-access-token-${testId}-1`);
+    test:assertTrue(check provider.getClient() === firstClient, "Expected the client to be reused");
     test:assertEquals(getTokenExchangeRequests(testId).length(), 1);
+    // After the refresh, requests use a new client that sends the new access token.
     advanceFakeClock(testId, 2);
-    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-2`);
+    test:assertEquals(check sendWithCurrentClient(testId, provider), string `Bearer wif-access-token-${testId}-2`);
+    test:assertFalse(check provider.getClient() === firstClient, "Expected a new client after the refresh");
     test:assertEquals(getTokenExchangeRequests(testId).length(), 2);
+}
+
+@test:Config
+function testWorkloadIdentityRebuildsConnectorClients() returns error? {
+    // A 1-second access token is refreshed after half a second, so the requests after the sleep use new clients
+    // that send the second access token, on every API and on the `generate()` path.
+    string chatTestId = "wif-rebuild-chat";
+    string responsesTestId = "wif-rebuild-responses";
+    string embeddingsTestId = "wif-rebuild-embeddings";
+    ModelProvider chatProvider = check new (workloadIdentityConfig(chatTestId, expiresIn = 1), GPT_4_1,
+        authServiceUrl(chatTestId));
+    ModelProvider responsesProvider = check new (workloadIdentityConfig(responsesTestId, expiresIn = 1), GPT_4_1,
+        authServiceUrl(responsesTestId), apiType = RESPONSES);
+    EmbeddingProvider embeddingProvider = check new (workloadIdentityConfig(embeddingsTestId, expiresIn = 1),
+        TEXT_EMBEDDING_3_SMALL, authServiceUrl(embeddingsTestId));
+    check callChatAndGenerate(chatProvider);
+    check callChatAndGenerate(responsesProvider);
+    _ = check embeddingProvider->embed(<ai:TextChunk>{content: "Hello"});
+    check assertAuthHeaders(chatTestId, ["chat", "generate"], string `Bearer wif-access-token-${chatTestId}-1`);
+    check assertAuthHeaders(responsesTestId, ["chat", "generate"],
+        string `Bearer wif-access-token-${responsesTestId}-1`);
+    check assertAuthHeaders(embeddingsTestId, ["embed"], string `Bearer wif-access-token-${embeddingsTestId}-1`);
+    // Any time after half a second works, so the sleep does not need to be precise.
+    runtime:sleep(1);
+    int _ = check chatProvider->generate(`Pick a number`);
+    _ = check chatProvider->chat([{role: ai:USER, content: "Hi"}]);
+    int _ = check responsesProvider->generate(`Pick a number`);
+    _ = check responsesProvider->chat([{role: ai:USER, content: "Hi"}]);
+    _ = check embeddingProvider->batchEmbed([<ai:TextChunk>{content: "Hello"}, <ai:TextChunk>{content: "World"}]);
+    check assertAuthHeaders(chatTestId, ["chat", "generate"], string `Bearer wif-access-token-${chatTestId}-2`);
+    check assertAuthHeaders(responsesTestId, ["chat", "generate"],
+        string `Bearer wif-access-token-${responsesTestId}-2`);
+    check assertAuthHeaders(embeddingsTestId, ["batchEmbed"], string `Bearer wif-access-token-${embeddingsTestId}-2`);
+    foreach string testId in [chatTestId, responsesTestId, embeddingsTestId] {
+        test:assertEquals(getTokenExchangeRequests(testId).length(), 2);
+    }
 }
 
 @test:Config
@@ -429,7 +480,7 @@ function testWorkloadIdentityRefreshesShortLivedAccessTokenHalfwayThrough() retu
     string testId = "wif-refresh-short-lived";
     // A 100-second access token is inside the 120-second refresh buffer from the start, so it is refreshed
     // halfway through its lifetime instead.
-    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId, expiresIn = 100);
+    WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId, expiresIn = 100);
     _ = check provider.getAccessToken();
     advanceFakeClock(testId, 49);
     test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-1`);
@@ -441,13 +492,14 @@ function testWorkloadIdentityRefreshesShortLivedAccessTokenHalfwayThrough() retu
 function testWorkloadIdentityUsesCachedTokenWhenRefreshFails() returns error? {
     string testId = "wif-refresh-fails";
     // The first exchange succeeds and the rest fail. The cached access token is used until 570 seconds.
-    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId, failAfter = 1);
+    WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId, failAfter = 1);
     _ = check provider.getAccessToken();
     advanceFakeClock(testId, 481);
-    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-1`);
+    // The client for the cached access token keeps being used.
+    test:assertEquals(check sendWithCurrentClient(testId, provider), string `Bearer wif-access-token-${testId}-1`);
     test:assertEquals(getTokenExchangeRequests(testId).length(), 2);
     advanceFakeClock(testId, 90);
-    string|ai:Error expired = provider.getAccessToken();
+    ConnectorClient|ai:Error expired = provider.getClient();
     if expired !is ai:LlmError {
         test:assertFail("Expected an ai:LlmError once the cached access token is inside the expiry buffer");
     }
@@ -458,7 +510,7 @@ function testWorkloadIdentityRechecksExpiryAfterRefreshFails() returns error? {
     string testId = "wif-refresh-fails-slowly";
     // The refresh starts at 481 seconds and fails 100 seconds later, after the cached access token may be used,
     // so the cached access token must not be returned.
-    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId, failAfter = 1,
+    WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId, failAfter = 1,
         clockAdvance = 100);
     _ = check provider.getAccessToken();
     advanceFakeClock(testId, 481);
@@ -488,7 +540,7 @@ function testWorkloadIdentityStopsExchangingAfterRejection() returns error? {
     // A rejected identity token cannot succeed later, so concurrent and later requests return the same error
     // without calling the token endpoint again. The token endpoint takes 0.2 seconds to fail, so the concurrent
     // requests wait for the first exchange.
-    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId, failAfter = -1, failDelay = 0.2);
+    WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId, failAfter = -1, failDelay = 0.2);
     foreach string|ai:Error result in getAccessTokensConcurrently(provider, 10) {
         if result !is ai:LlmError {
             test:assertFail("Expected an ai:LlmError");
@@ -508,7 +560,7 @@ function testWorkloadIdentityStopsExchangingAfterRejection() returns error? {
 function testWorkloadIdentityBacksOffAfterFailedRefresh() returns error? {
     string testId = "wif-backoff";
     // The token endpoint is unavailable after the first exchange, a failure that may be temporary.
-    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId, failAfter = 1, unavailable = true);
+    WorkloadIdentityClientProvider provider = check workloadIdentityProvider(testId, failAfter = 1, unavailable = true);
     _ = check provider.getAccessToken();
     // At 568 seconds, concurrent requests make one failed refresh between them and use the cached access token.
     advanceFakeClock(testId, 568);

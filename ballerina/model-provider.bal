@@ -29,9 +29,10 @@ const DEFAULT_MAX_TOKEN_COUNT = 4096;
 # Supports both the Chat Completions API (default) and the Responses API, selected via the `apiType` configuration.
 public isolated distinct client class ModelProvider {
     *ai:ModelProvider;
-    private final chat:Client? llmClient;
-    private final responses:Client? responsesClient;
-    private final AuthProvider authProvider;
+    // Provides the `chat:Client` for the Chat Completions API, or the `responses:Client` for the Responses API.
+    private final ClientProvider clientProvider;
+    // The `OpenAI-Organization` and `OpenAI-Project` headers, sent with every request.
+    private final map<string> & readonly headers;
     private final OPEN_AI_MODEL_NAMES modelType;
     private final ApiType apiType;
     private final decimal? temperature;
@@ -69,66 +70,16 @@ public isolated distinct client class ModelProvider {
         self.maxTokens = maxTokens;
         self.reasoning = reasoningEffort;
         self.apiType = apiType;
-        self.authProvider = check createAuthProvider(apiKey, toTokenClientConfig(connectionConfig));
+        self.headers = getAuthHeaders(apiKey);
 
-        // The connector clients are created without `auth`, so that the authentication headers from the
-        // `authProvider`, passed with each request, are not overwritten.
-        if apiType == CHAT_COMPLETIONS {
-            http:ClientHttp1Settings?|error http1Settings = connectionConfig?.http1Settings.cloneWithType();
-            if http1Settings is error {
-                return error ai:Error("Failed to clone http1Settings", http1Settings);
-            }
-            chat:ConnectionConfig openAiConfig = {
-                httpVersion: connectionConfig.httpVersion,
-                http1Settings: http1Settings ?: {},
-                http2Settings: connectionConfig.http2Settings ?: {},
-                timeout: connectionConfig.timeout,
-                forwarded: connectionConfig.forwarded,
-                poolConfig: connectionConfig.poolConfig,
-                cache: connectionConfig.cache ?: {},
-                compression: connectionConfig.compression,
-                circuitBreaker: connectionConfig.circuitBreaker,
-                retryConfig: connectionConfig.retryConfig,
-                responseLimits: connectionConfig.responseLimits ?: {},
-                secureSocket: connectionConfig.secureSocket,
-                proxy: connectionConfig.proxy,
-                validation: connectionConfig.validation
-            };
-            chat:Client|error llmClient = new (openAiConfig, serviceUrl);
-            if llmClient is error {
-                return error ai:Error("Failed to initialize OpenAiProvider", llmClient);
-            }
-            self.llmClient = llmClient;
-            self.responsesClient = ();
-        } else {
-            // Responses API: create a responses:Client (same type as Chat Completions)
-            http:ClientHttp1Settings?|error http1Settings = connectionConfig?.http1Settings.cloneWithType();
-            if http1Settings is error {
-                return error ai:Error("Failed to clone http1Settings", http1Settings);
-            }
-            responses:ConnectionConfig openAiConfig = {
-                httpVersion: connectionConfig.httpVersion,
-                http1Settings: http1Settings ?: {},
-                http2Settings: connectionConfig.http2Settings ?: {},
-                timeout: connectionConfig.timeout,
-                forwarded: connectionConfig.forwarded,
-                poolConfig: connectionConfig.poolConfig,
-                cache: connectionConfig.cache ?: {},
-                compression: connectionConfig.compression,
-                circuitBreaker: connectionConfig.circuitBreaker,
-                retryConfig: connectionConfig.retryConfig,
-                responseLimits: connectionConfig.responseLimits ?: {},
-                secureSocket: connectionConfig.secureSocket,
-                proxy: connectionConfig.proxy,
-                validation: connectionConfig.validation
-            };
-            responses:Client|error responsesApiClient = new (openAiConfig, serviceUrl);
-            if responsesApiClient is error {
-                return error ai:Error("Failed to initialize Responses Client for Responses API", responsesApiClient);
-            }
-            self.responsesClient = responsesApiClient;
-            self.llmClient = ();
-        }
+        // With Workload Identity Federation, a new client is created for each new access token.
+        final ConnectionConfig & readonly config = connectionConfig.cloneReadOnly();
+        ClientFactory clientFactory = apiType == CHAT_COMPLETIONS
+            ? isolated function(string token) returns ConnectorClient|ai:Error =>
+                createChatClient(token, serviceUrl, config)
+            : isolated function(string token) returns ConnectorClient|ai:Error =>
+                createResponsesClient(token, serviceUrl, config);
+        self.clientProvider = check createClientProvider(apiKey, clientFactory, toTokenClientConfig(connectionConfig));
     }
 
     # Sends a chat request to the OpenAI model with the given messages and tools.
@@ -161,7 +112,6 @@ public isolated distinct client class ModelProvider {
 
     private isolated function chatViaChatCompletions(ai:ChatMessage[]|ai:ChatUserMessage messages,
             ai:ChatCompletionFunctions[] tools, string? stop) returns ai:ChatAssistantMessage|ai:Error {
-        chat:Client llmClient = <chat:Client>self.llmClient;
         observe:ChatSpan span = observe:createChatSpan(self.modelType);
         span.addProvider("openai");
         if stop is string {
@@ -204,13 +154,13 @@ public isolated distinct client class ModelProvider {
             request.reasoning_effort = reasoningEffort;
         }
 
-        map<string> & readonly|ai:Error authHeaders = self.authProvider.getHeaders();
-        if authHeaders is ai:Error {
-            span.close(authHeaders);
-            return authHeaders;
+        chat:Client|ai:Error llmClient = getChatClient(self.clientProvider);
+        if llmClient is ai:Error {
+            span.close(llmClient);
+            return llmClient;
         }
         chat:CreateChatCompletionResponse|error response =
-            llmClient->/chat/completions.post(request, authHeaders);
+            llmClient->/chat/completions.post(request, self.headers);
         if response is error {
             ai:Error err = error ai:LlmConnectionError("Error while connecting to the model", response);
             log:printError("Error response received from Chat Completion API", err);
@@ -259,7 +209,6 @@ public isolated distinct client class ModelProvider {
 
     private isolated function chatViaResponses(ai:ChatMessage[]|ai:ChatUserMessage messages,
             ai:ChatCompletionFunctions[] tools, string? stop) returns ai:ChatAssistantMessage|ai:Error {
-        responses:Client responsesClient = <responses:Client>self.responsesClient;
         observe:ChatSpan span = observe:createChatSpan(self.modelType);
         span.addProvider("openai");
         if stop is string {
@@ -311,13 +260,13 @@ public isolated distinct client class ModelProvider {
         }
 
         // POST to /responses
-        map<string> & readonly|ai:Error authHeaders = self.authProvider.getHeaders();
-        if authHeaders is ai:Error {
-            span.close(authHeaders);
-            return authHeaders;
+        responses:Client|ai:Error responsesClient = getResponsesClient(self.clientProvider);
+        if responsesClient is ai:Error {
+            span.close(responsesClient);
+            return responsesClient;
         }
         responses:Response|error response =
-            responsesClient->/responses.post(request, authHeaders);
+            responsesClient->/responses.post(request, self.headers);
         if response is error {
             ai:Error err = error ai:LlmConnectionError("Error while connecting to the model", response);
             log:printError("Error response received from Responses API", err);
@@ -747,4 +696,104 @@ isolated function validateChatCompletionsToolCall(OPEN_AI_MODEL_NAMES modelType,
                 "API only with 'reasoningEffort = NONE'. Set 'reasoningEffort = NONE' or use 'apiType = RESPONSES'.");
     }
     return;
+}
+
+# Creates a Chat Completions API client that sends the given token in the `Authorization: Bearer` header.
+#
+# + token - The API key or access token
+# + serviceUrl - The base URL of the OpenAI API
+# + connectionConfig - The connection configuration
+# + return - The client, or an `ai:Error` if it could not be created
+isolated function createChatClient(string token, string serviceUrl, ConnectionConfig connectionConfig)
+        returns chat:Client|ai:Error {
+    http:ClientHttp1Settings?|error http1Settings = connectionConfig?.http1Settings.cloneWithType();
+    if http1Settings is error {
+        return error ai:Error("Failed to clone http1Settings", http1Settings);
+    }
+    chat:ConnectionConfig openAiConfig = {
+        auth: {
+            token
+        },
+        httpVersion: connectionConfig.httpVersion,
+        http1Settings: http1Settings ?: {},
+        http2Settings: connectionConfig.http2Settings ?: {},
+        timeout: connectionConfig.timeout,
+        forwarded: connectionConfig.forwarded,
+        poolConfig: connectionConfig.poolConfig,
+        cache: connectionConfig.cache ?: {},
+        compression: connectionConfig.compression,
+        circuitBreaker: connectionConfig.circuitBreaker,
+        retryConfig: connectionConfig.retryConfig,
+        responseLimits: connectionConfig.responseLimits ?: {},
+        secureSocket: connectionConfig.secureSocket,
+        proxy: connectionConfig.proxy,
+        validation: connectionConfig.validation
+    };
+    chat:Client|error llmClient = new (openAiConfig, serviceUrl);
+    if llmClient is error {
+        return error ai:Error("Failed to initialize OpenAiProvider", llmClient);
+    }
+    return llmClient;
+}
+
+# Creates a Responses API client that sends the given token in the `Authorization: Bearer` header.
+#
+# + token - The API key or access token
+# + serviceUrl - The base URL of the OpenAI API
+# + connectionConfig - The connection configuration
+# + return - The client, or an `ai:Error` if it could not be created
+isolated function createResponsesClient(string token, string serviceUrl, ConnectionConfig connectionConfig)
+        returns responses:Client|ai:Error {
+    http:ClientHttp1Settings?|error http1Settings = connectionConfig?.http1Settings.cloneWithType();
+    if http1Settings is error {
+        return error ai:Error("Failed to clone http1Settings", http1Settings);
+    }
+    responses:ConnectionConfig openAiConfig = {
+        auth: {
+            token
+        },
+        httpVersion: connectionConfig.httpVersion,
+        http1Settings: http1Settings ?: {},
+        http2Settings: connectionConfig.http2Settings ?: {},
+        timeout: connectionConfig.timeout,
+        forwarded: connectionConfig.forwarded,
+        poolConfig: connectionConfig.poolConfig,
+        cache: connectionConfig.cache ?: {},
+        compression: connectionConfig.compression,
+        circuitBreaker: connectionConfig.circuitBreaker,
+        retryConfig: connectionConfig.retryConfig,
+        responseLimits: connectionConfig.responseLimits ?: {},
+        secureSocket: connectionConfig.secureSocket,
+        proxy: connectionConfig.proxy,
+        validation: connectionConfig.validation
+    };
+    responses:Client|error responsesApiClient = new (openAiConfig, serviceUrl);
+    if responsesApiClient is error {
+        return error ai:Error("Failed to initialize Responses Client for Responses API", responsesApiClient);
+    }
+    return responsesApiClient;
+}
+
+# Returns the current Chat Completions API client.
+#
+# + clientProvider - The client provider of a model provider created with `apiType = CHAT_COMPLETIONS`
+# + return - The client, or an `ai:Error` if it could not be obtained
+isolated function getChatClient(ClientProvider clientProvider) returns chat:Client|ai:Error {
+    ConnectorClient connectorClient = check clientProvider.getClient();
+    if connectorClient is chat:Client {
+        return connectorClient;
+    }
+    return error ai:Error("The model provider is not configured for the Chat Completions API");
+}
+
+# Returns the current Responses API client.
+#
+# + clientProvider - The client provider of a model provider created with `apiType = RESPONSES`
+# + return - The client, or an `ai:Error` if it could not be obtained
+isolated function getResponsesClient(ClientProvider clientProvider) returns responses:Client|ai:Error {
+    ConnectorClient connectorClient = check clientProvider.getClient();
+    if connectorClient is responses:Client {
+        return connectorClient;
+    }
+    return error ai:Error("The model provider is not configured for the Responses API");
 }

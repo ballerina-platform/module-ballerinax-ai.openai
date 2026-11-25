@@ -227,7 +227,8 @@ isolated function handleParseResponseError(error chatResponseError) returns erro
     return chatResponseError;
 }
 
-isolated function generateLlmResponse(chat:Client llmClient, AuthProvider authProvider, OPEN_AI_MODEL_NAMES modelType,
+isolated function generateLlmResponse(ClientProvider clientProvider, map<string> & readonly headers,
+        OPEN_AI_MODEL_NAMES modelType,
         decimal? temperature, int maxTokens, ReasoningEffort? reasoningEffort,
         ai:Prompt prompt, typedesc<json> expectedResponseTypedesc) returns anydata|ai:Error {
     observe:GenerateContentSpan span = observe:createGenerateContentSpan(modelType);
@@ -265,13 +266,13 @@ isolated function generateLlmResponse(chat:Client llmClient, AuthProvider authPr
         request.reasoning_effort = reasoningEffort;
     }
     span.addInputMessages(request.messages.toJson());
-    map<string> & readonly|ai:Error authHeaders = authProvider.getHeaders();
-    if authHeaders is ai:Error {
-        span.close(authHeaders);
-        return authHeaders;
+    chat:Client|ai:Error llmClient = getChatClient(clientProvider);
+    if llmClient is ai:Error {
+        span.close(llmClient);
+        return llmClient;
     }
     chat:CreateChatCompletionResponse|error response =
-        llmClient->/chat/completions.post(request, authHeaders);
+        llmClient->/chat/completions.post(request, headers);
     if response is error {
         ai:Error err = error("LLM call failed: " + response.message(), detail = response.detail(), cause = response.cause());
         span.close(err);

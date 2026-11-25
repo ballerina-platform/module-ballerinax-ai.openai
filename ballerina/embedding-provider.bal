@@ -21,8 +21,10 @@ import ballerinax/openai.embeddings;
 # EmbeddingProvider provides an interface for interacting with OpenAI Embedding Models.
 public distinct isolated client class EmbeddingProvider {
     *ai:EmbeddingProvider;
-    private final embeddings:Client embeddingsClient;
-    private final AuthProvider authProvider;
+    // Provides the `embeddings:Client`.
+    private final ClientProvider clientProvider;
+    // The `OpenAI-Organization` and `OpenAI-Project` headers, sent with every request.
+    private final map<string> & readonly headers;
     private final string modelType;
 
     # Initializes the OpenAI embedding model with the given connection configuration.
@@ -39,34 +41,12 @@ public distinct isolated client class EmbeddingProvider {
             @display {label: "Embedding Model Type"} OPEN_AI_EMBEDDING_MODEL_NAMES modelType,
             @display {label: "Service URL"} string serviceUrl = DEFAULT_OPENAI_SERVICE_URL,
             @display {label: "Connection Configuration"} *ConnectionConfig connectionConfig) returns ai:Error? {
-        self.authProvider = check createAuthProvider(apiKey, toTokenClientConfig(connectionConfig));
-        // The connector client is created without `auth`, so that the authentication headers from the
-        // `authProvider`, passed with each request, are not overwritten.
-        embeddings:ClientHttp1Settings?|error http1Settings = connectionConfig?.http1Settings.cloneWithType();
-        if http1Settings is error {
-            return error ai:Error("Failed to clone http1Settings", http1Settings);
-        }
-        embeddings:ConnectionConfig openAiConfig = {
-            httpVersion: connectionConfig.httpVersion,
-            http1Settings: http1Settings,
-            http2Settings: connectionConfig.http2Settings,
-            timeout: connectionConfig.timeout,
-            forwarded: connectionConfig.forwarded,
-            poolConfig: connectionConfig.poolConfig,
-            cache: connectionConfig.cache,
-            compression: connectionConfig.compression,
-            circuitBreaker: connectionConfig.circuitBreaker,
-            retryConfig: connectionConfig.retryConfig,
-            responseLimits: connectionConfig.responseLimits,
-            secureSocket: connectionConfig.secureSocket,
-            proxy: connectionConfig.proxy,
-            validation: connectionConfig.validation
-        };
-        embeddings:Client|error embeddingsClient = new (openAiConfig, serviceUrl);
-        if embeddingsClient is error {
-            return error ai:Error("Failed to initialize OpenAI embedding provider", embeddingsClient);
-        }
-        self.embeddingsClient = embeddingsClient;
+        self.headers = getAuthHeaders(apiKey);
+        // With Workload Identity Federation, a new client is created for each new access token.
+        final ConnectionConfig & readonly config = connectionConfig.cloneReadOnly();
+        ClientFactory clientFactory = isolated function(string token) returns ConnectorClient|ai:Error =>
+            createEmbeddingsClient(token, serviceUrl, config);
+        self.clientProvider = check createClientProvider(apiKey, clientFactory, toTokenClientConfig(connectionConfig));
         self.modelType = modelType;
     }
 
@@ -89,9 +69,9 @@ public distinct isolated client class EmbeddingProvider {
                 input: chunk.content
             };
             span.addInputContent(chunk.content);
-            map<string> & readonly authHeaders = check self.authProvider.getHeaders();
+            embeddings:Client embeddingsClient = check getEmbeddingsClient(self.clientProvider);
             embeddings:CreateEmbeddingResponse response =
-                check self.embeddingsClient->/embeddings.post(request, authHeaders);
+                check embeddingsClient->/embeddings.post(request, self.headers);
             span.addInputTokenCount(response.usage.prompt_tokens);
             span.addResponseModel(response.model);
 
@@ -125,9 +105,9 @@ public distinct isolated client class EmbeddingProvider {
                 input
             };
             span.addInputContent(input);
-            map<string> & readonly authHeaders = check self.authProvider.getHeaders();
+            embeddings:Client embeddingsClient = check getEmbeddingsClient(self.clientProvider);
             embeddings:CreateEmbeddingResponse response =
-                check self.embeddingsClient->/embeddings.post(request, authHeaders);
+                check embeddingsClient->/embeddings.post(request, self.headers);
             span.addInputTokenCount(response.usage.prompt_tokens);
             span.addResponseModel(response.model);
 
@@ -145,4 +125,54 @@ public distinct isolated client class EmbeddingProvider {
 
 isolated function isAllTextChunks(ai:Chunk[] chunks) returns boolean {
     return chunks.every(chunk => chunk is ai:TextChunk|ai:TextDocument);
+}
+
+# Creates an embeddings API client that sends the given token in the `Authorization: Bearer` header.
+#
+# + token - The API key or access token
+# + serviceUrl - The base URL of the OpenAI API
+# + connectionConfig - The connection configuration
+# + return - The client, or an `ai:Error` if it could not be created
+isolated function createEmbeddingsClient(string token, string serviceUrl, ConnectionConfig connectionConfig)
+        returns embeddings:Client|ai:Error {
+    embeddings:ClientHttp1Settings?|error http1Settings = connectionConfig?.http1Settings.cloneWithType();
+    if http1Settings is error {
+        return error ai:Error("Failed to clone http1Settings", http1Settings);
+    }
+    embeddings:ConnectionConfig openAiConfig = {
+        auth: {
+            token
+        },
+        httpVersion: connectionConfig.httpVersion,
+        http1Settings: http1Settings,
+        http2Settings: connectionConfig.http2Settings,
+        timeout: connectionConfig.timeout,
+        forwarded: connectionConfig.forwarded,
+        poolConfig: connectionConfig.poolConfig,
+        cache: connectionConfig.cache,
+        compression: connectionConfig.compression,
+        circuitBreaker: connectionConfig.circuitBreaker,
+        retryConfig: connectionConfig.retryConfig,
+        responseLimits: connectionConfig.responseLimits,
+        secureSocket: connectionConfig.secureSocket,
+        proxy: connectionConfig.proxy,
+        validation: connectionConfig.validation
+    };
+    embeddings:Client|error embeddingsClient = new (openAiConfig, serviceUrl);
+    if embeddingsClient is error {
+        return error ai:Error("Failed to initialize OpenAI embedding provider", embeddingsClient);
+    }
+    return embeddingsClient;
+}
+
+# Returns the current embeddings API client.
+#
+# + clientProvider - The client provider of an embedding provider
+# + return - The client, or an `ai:Error` if it could not be obtained
+isolated function getEmbeddingsClient(ClientProvider clientProvider) returns embeddings:Client|ai:Error {
+    ConnectorClient connectorClient = check clientProvider.getClient();
+    if connectorClient is embeddings:Client {
+        return connectorClient;
+    }
+    return error ai:Error("The embedding provider is not configured for the embeddings API");
 }

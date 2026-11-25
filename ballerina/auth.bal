@@ -17,10 +17,12 @@
 import ballerina/ai;
 import ballerina/http;
 import ballerina/time;
+import ballerinax/openai.chat;
+import ballerinax/openai.embeddings;
+import ballerinax/openai.responses;
 
 const DEFAULT_TOKEN_URL = "https://auth.openai.com/oauth/token";
 const TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
-const AUTHORIZATION_HEADER = "authorization";
 const ORGANIZATION_HEADER = "openai-organization";
 const PROJECT_HEADER = "openai-project";
 
@@ -88,24 +90,31 @@ public type WorkloadIdentityConfig record {|
 # offers a record editor for them.
 public type AuthConfig ApiKeyConfig|WorkloadIdentityConfig|http:BearerTokenConfig|string;
 
-# Provides the authentication headers for each request to the OpenAI API.
-type AuthProvider isolated object {
-    # Returns the authentication headers to send with a request.
+# A client of one of the OpenAI connectors.
+type ConnectorClient chat:Client|responses:Client|embeddings:Client;
+
+# Creates a connector client that sends the given token in the `Authorization: Bearer` header.
+type ClientFactory isolated function (string token) returns ConnectorClient|ai:Error;
+
+# Provides the connector client for each request to the OpenAI API. The token is set in the `auth` configuration of
+# the client, so a token that changes needs a new client.
+type ClientProvider isolated object {
+    # Returns the connector client to send a request with.
     #
-    # + return - The authentication headers, or an `ai:Error` if they could not be obtained
-    isolated function getHeaders() returns map<string> & readonly|ai:Error;
+    # + return - The connector client, or an `ai:Error` if it could not be obtained
+    isolated function getClient() returns ConnectorClient|ai:Error;
 };
 
-# Provides headers that do not change, for API key and bearer token authentication.
-isolated class StaticAuthProvider {
-    *AuthProvider;
-    private final map<string> & readonly headers;
+# Provides a client created once, for an API key or an access token that does not change.
+isolated class StaticClientProvider {
+    *ClientProvider;
+    private final ConnectorClient connectorClient;
 
-    isolated function init(map<string> & readonly headers) {
-        self.headers = headers;
+    isolated function init(ConnectorClient connectorClient) {
+        self.connectorClient = connectorClient;
     }
 
-    isolated function getHeaders() returns map<string> & readonly|ai:Error => self.headers;
+    isolated function getClient() returns ConnectorClient|ai:Error => self.connectorClient;
 }
 
 # The fields of the token exchange request that do not change between exchanges.
@@ -129,7 +138,7 @@ type TokenExchangeResponse record {
 # Returns the current monotonic time, in seconds.
 type Clock isolated function () returns decimal;
 
-# The timing settings of `WorkloadIdentityAuthProvider`. Every provider uses the defaults. Tests set a clock that
+# The timing settings of `WorkloadIdentityClientProvider`. Every provider uses the defaults. Tests set a clock that
 # they move forward, so they check the timing without waiting.
 type WorkloadIdentityTimings record {|
     # A cached access token is refreshed this many seconds before it expires, or halfway through its lifetime if
@@ -145,57 +154,73 @@ type WorkloadIdentityTimings record {|
     Clock clock = time:monotonicNow;
 |};
 
-# Provides the headers for Workload Identity Federation. Exchanges the identity token for an access token,
-# caches the access token, and exchanges again before it expires.
-isolated class WorkloadIdentityAuthProvider {
-    *AuthProvider;
+# Provides the client for Workload Identity Federation. Exchanges the identity token for an access token, creates a
+# connector client that sends the access token, and caches both. Before the access token expires, exchanges the
+# identity token again and replaces the client with one that sends the new access token. Requests already sent on
+# the previous client are not affected.
+isolated class WorkloadIdentityClientProvider {
+    *ClientProvider;
     private final http:Client tokenClient;
     private final TokenExchangeParams & readonly exchangeParams;
     private final string identityToken;
+    private final ClientFactory clientFactory;
     private final WorkloadIdentityTimings & readonly timings;
     private string? accessToken = ();
+    // The connector client that sends `accessToken`.
+    private ConnectorClient? connectorClient = ();
     // The monotonic time, in seconds, after which the cached access token is refreshed.
     private decimal refreshAt = 0;
     // The monotonic time, in seconds, until which the cached access token is used if a refresh fails.
     private decimal usableUntil = 0;
-    // The last failed exchange, returned without calling the token endpoint until `retryAfter`.
+    // The last failed refresh, returned without calling the token endpoint until `retryAfter`.
     private ai:Error? lastError = ();
-    // The monotonic time, in seconds, before which a failed exchange is not tried again.
+    // The monotonic time, in seconds, before which a failed refresh is not tried again.
     private decimal retryAfter = 0;
     // Set when the token endpoint rejects the identity token. The identity token does not change, so no later
     // exchange can succeed, and the token endpoint is not called again.
     private ai:Error? rejectedError = ();
 
     isolated function init(http:Client tokenClient, TokenExchangeParams & readonly exchangeParams,
-            string identityToken, WorkloadIdentityTimings & readonly timings = {}) {
+            string identityToken, ClientFactory clientFactory, WorkloadIdentityTimings & readonly timings = {}) {
         self.tokenClient = tokenClient;
         self.exchangeParams = exchangeParams;
         self.identityToken = identityToken;
+        self.clientFactory = clientFactory;
         self.timings = timings;
     }
 
-    isolated function getHeaders() returns map<string> & readonly|ai:Error {
-        string accessToken = check self.getAccessToken();
-        return {[AUTHORIZATION_HEADER]: string `Bearer ${accessToken}`};
+    isolated function getClient() returns ConnectorClient|ai:Error {
+        _ = check self.getAccessToken();
+        lock {
+            // Set together with the access token, so it is set once `getAccessToken` succeeds. A concurrent refresh
+            // may have replaced it since, with a client for a newer access token.
+            ConnectorClient? connectorClient = self.connectorClient;
+            if connectorClient is () {
+                return error ai:Error("The OpenAI client is not initialized");
+            }
+            return connectorClient;
+        }
     }
 
-    # Returns the cached access token, exchanging the identity token for a new one when the cached access token
-    # is about to expire. The exchange runs inside the lock so that concurrent requests trigger only one exchange.
+    # Returns the cached access token, exchanging the identity token for a new one and creating a client for it when
+    # the cached access token is about to expire. The exchange runs inside the lock so that concurrent requests
+    # trigger only one exchange.
     #
     # While an exchange runs, every other request through this provider waits for it, even when the cached access
     # token is still valid. An exchange happens about once per access token lifetime, and if the token endpoint
     # does not respond, the wait lasts at most the `timeout` of the connection configuration (60 seconds by
     # default), because the exchange is not retried.
     #
-    # A failed exchange is recorded, so requests queued behind it do not call the token endpoint again. They use
-    # the cached access token while it is still valid, or return the recorded error. After an error that may be
-    # temporary, the exchange is tried again after the backoff period. After the token endpoint rejects the
-    # identity token, it is never tried again.
+    # A failed refresh is recorded, so requests queued behind it do not call the token endpoint again. They use
+    # the cached access token and its client while the access token is still valid, or return the recorded error.
+    # After an error that may be temporary, the refresh is tried again after the backoff period. After the token
+    # endpoint rejects the identity token, it is never tried again.
     #
-    # + return - The access token, or an `ai:Error` if the exchange fails
+    # + return - The access token, or an `ai:Error` if the refresh fails
     isolated function getAccessToken() returns string|ai:Error {
         WorkloadIdentityTimings & readonly timings = self.timings;
         Clock clock = timings.clock;
+        ClientFactory clientFactory = self.clientFactory;
         lock {
             decimal now = clock();
             string? cachedToken = self.accessToken;
@@ -208,23 +233,26 @@ isolated class WorkloadIdentityAuthProvider {
             }
             TokenExchangeResponse|ai:Error response =
                 exchangeIdentityToken(self.tokenClient, self.exchangeParams, self.identityToken);
-            if response is ai:Error {
+            ConnectorClient|ai:Error newClient = response is ai:Error ? response
+                : clientFactory(response.access_token);
+            if response is ai:Error || newClient is ai:Error {
                 // The exchange may have taken a while to fail, so use the current time from here on.
                 decimal failedAt = clock();
-                ai:Error exchangeError = response;
-                if isIdentityTokenRejected(response) {
-                    exchangeError = error ai:LlmError(string `${response.message()}. The identity token is not `
-                        + "exchanged again. Create a new provider with a new identity token.", response);
-                    self.rejectedError = exchangeError;
+                ai:Error refreshError = response is ai:Error ? response : <ai:Error>newClient;
+                if isIdentityTokenRejected(refreshError) {
+                    refreshError = error ai:LlmError(string `${refreshError.message()}. The identity token is not `
+                        + "exchanged again. Create a new provider with a new identity token.", refreshError);
+                    self.rejectedError = refreshError;
                 } else {
-                    self.lastError = exchangeError;
+                    self.lastError = refreshError;
                     self.retryAfter = failedAt + timings.backoffSeconds;
                 }
-                // Keep using the cached access token while it is still valid.
-                return cachedToken is string && failedAt < self.usableUntil ? cachedToken : exchangeError;
+                // Keep using the cached access token and its client while the access token is still valid.
+                return cachedToken is string && failedAt < self.usableUntil ? cachedToken : refreshError;
             }
             decimal expiresIn = <decimal>response.expires_in;
             self.accessToken = response.access_token;
+            self.connectorClient = newClient;
             self.refreshAt = now + expiresIn - decimal:min(timings.refreshBufferSeconds, expiresIn / 2);
             self.usableUntil = now + expiresIn - decimal:min(timings.expiryBufferSeconds, expiresIn / 4);
             self.lastError = ();
@@ -234,33 +262,48 @@ isolated class WorkloadIdentityAuthProvider {
     }
 }
 
-# Creates the authentication provider for the given authentication configuration.
+# Returns the headers to send with every request, other than `Authorization`, which the connector client sends.
+#
+# + auth - The authentication configuration
+# + return - The `OpenAI-Organization` and `OpenAI-Project` headers of an `ApiKeyConfig`, or no headers
+isolated function getAuthHeaders(AuthConfig auth) returns map<string> & readonly {
+    if auth !is ApiKeyConfig {
+        return {};
+    }
+    map<string> headers = {};
+    string? organization = auth.organization;
+    if organization is string {
+        headers[ORGANIZATION_HEADER] = organization;
+    }
+    string? project = auth.project;
+    if project is string {
+        headers[PROJECT_HEADER] = project;
+    }
+    return headers.cloneReadOnly();
+}
+
+# Creates the client provider for the given authentication configuration.
 #
 # + auth - The authentication configuration. A `string` is an OpenAI API key
+# + clientFactory - Creates a connector client that sends a given token
 # + tokenClientConfig - The HTTP client configuration for the token exchange endpoint
-# + return - The authentication provider, or an `ai:Error` if it could not be created
-isolated function createAuthProvider(AuthConfig auth, http:ClientConfiguration tokenClientConfig)
-        returns AuthProvider|ai:Error {
+# + return - The client provider, or an `ai:Error` if it could not be created
+isolated function createClientProvider(AuthConfig auth, ClientFactory clientFactory,
+        http:ClientConfiguration tokenClientConfig) returns ClientProvider|ai:Error {
     if auth is string {
         // Sent in the `Authorization: Bearer` header, as in 1.x, so existing users see no change on the wire.
-        return new StaticAuthProvider({[AUTHORIZATION_HEADER]: string `Bearer ${check validateApiKey(auth)}`});
+        return new StaticClientProvider(check clientFactory(check validateApiKey(auth)));
     }
     if auth is ApiKeyConfig {
-        map<string> headers = {[AUTHORIZATION_HEADER]: string `Bearer ${check validateApiKey(auth.apiKey)}`};
-        string? organization = auth.organization;
-        if organization is string {
-            headers[ORGANIZATION_HEADER] = organization;
-        }
-        string? project = auth.project;
-        if project is string {
-            headers[PROJECT_HEADER] = project;
-        }
-        return new StaticAuthProvider(headers.cloneReadOnly());
+        return new StaticClientProvider(check clientFactory(check validateApiKey(auth.apiKey)));
     }
     if auth is http:BearerTokenConfig {
-        return new StaticAuthProvider({[AUTHORIZATION_HEADER]: string `Bearer ${auth.token}`});
+        return new StaticClientProvider(check clientFactory(auth.token));
     }
 
+    // The access token is obtained on the first request. Create a client now as well, so that an invalid
+    // connection configuration fails here, as it does for an API key.
+    _ = check clientFactory("");
     http:Client|error tokenClient = new (auth.tokenUrl, tokenClientConfig);
     if tokenClient is error {
         return error ai:Error("Failed to initialize the Workload Identity Federation token client", tokenClient);
@@ -270,7 +313,7 @@ isolated function createAuthProvider(AuthConfig auth, http:ClientConfiguration t
         identity_provider_id: auth.identityProviderId,
         service_account_id: auth.serviceAccountId
     };
-    return new WorkloadIdentityAuthProvider(tokenClient, exchangeParams, auth.identityToken);
+    return new WorkloadIdentityClientProvider(tokenClient, exchangeParams, auth.identityToken, clientFactory);
 }
 
 # Exchanges the identity token for a short-lived OpenAI access token.

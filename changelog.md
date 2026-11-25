@@ -23,7 +23,7 @@ This file documents all significant changes made to the Ballerina ai.openai pack
   - `ApiKeyConfig` sends the optional `organization` and `project` in the `OpenAI-Organization` and `OpenAI-Project` headers
   - `WorkloadIdentityConfig` exchanges an identity token from your identity provider for a short-lived OpenAI access token (Workload Identity Federation), and caches the access token until it is about to expire
   - `http:BearerTokenConfig` sends an access token obtained elsewhere, which is not refreshed
-  - Requires `openai.chat` 5.1.0, `openai.responses` 1.1.0 and `openai.embeddings` 1.1.0 or later, where the `auth` field of `ConnectionConfig` is optional
+  - Requires `openai.embeddings` 1.1.0 or later, which accepts request headers, so that the `OpenAI-Organization` and `OpenAI-Project` headers are sent with embedding requests
 - [Update batchEmbed to Validate Chunks at Element Level](https://github.com/ballerina-platform/ballerina-library/issues/8171)
 - [`apiType` now defaults to `CHAT_COMPLETIONS`; the Responses API is opt-in](https://github.com/wso2/product-ballerina-integrator/issues/2457)
 - [Passing `stop` with `apiType = RESPONSES` now returns an `ai:Error` instead of being silently dropped, as the Responses API has no stop-sequence parameter](https://github.com/wso2/product-ballerina-integrator/issues/2457)
