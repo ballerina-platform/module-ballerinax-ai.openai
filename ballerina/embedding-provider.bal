@@ -39,7 +39,7 @@ public distinct isolated client class EmbeddingProvider {
             @display {label: "Embedding Model Type"} OPEN_AI_EMBEDDING_MODEL_NAMES modelType,
             @display {label: "Service URL"} string serviceUrl = DEFAULT_OPENAI_SERVICE_URL,
             @display {label: "Connection Configuration"} *ConnectionConfig connectionConfig) returns ai:Error? {
-        self.authProvider = check createAuthProvider(apiKey, toHttpClientConfig(connectionConfig));
+        self.authProvider = check createAuthProvider(apiKey, toTokenClientConfig(connectionConfig));
         // The connector client is created without `auth`, so that the authentication headers from the
         // `authProvider`, passed with each request, are not overwritten.
         embeddings:ClientHttp1Settings?|error http1Settings = connectionConfig?.http1Settings.cloneWithType();

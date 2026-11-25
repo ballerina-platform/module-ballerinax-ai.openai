@@ -126,6 +126,25 @@ type TokenExchangeResponse record {
     int expires_in;
 };
 
+# Returns the current monotonic time, in seconds.
+type Clock isolated function () returns decimal;
+
+# The timing settings of `WorkloadIdentityAuthProvider`. Every provider uses the defaults. Tests set a clock that
+# they move forward, so they check the timing without waiting.
+type WorkloadIdentityTimings record {|
+    # A cached access token is refreshed this many seconds before it expires, or halfway through its lifetime if
+    # that is sooner
+    decimal refreshBufferSeconds = TOKEN_REFRESH_BUFFER_SECONDS;
+    # If a refresh fails, the cached access token is used until this many seconds before it expires, or until
+    # three quarters of its lifetime if that is sooner
+    decimal expiryBufferSeconds = TOKEN_EXPIRY_BUFFER_SECONDS;
+    # After an exchange fails with an error that may be temporary, the token endpoint is not called again for
+    # this many seconds
+    decimal backoffSeconds = TOKEN_EXCHANGE_BACKOFF_SECONDS;
+    # Returns the current time
+    Clock clock = time:monotonicNow;
+|};
+
 # Provides the headers for Workload Identity Federation. Exchanges the identity token for an access token,
 # caches the access token, and exchanges again before it expires.
 isolated class WorkloadIdentityAuthProvider {
@@ -133,6 +152,7 @@ isolated class WorkloadIdentityAuthProvider {
     private final http:Client tokenClient;
     private final TokenExchangeParams & readonly exchangeParams;
     private final string identityToken;
+    private final WorkloadIdentityTimings & readonly timings;
     private string? accessToken = ();
     // The monotonic time, in seconds, after which the cached access token is refreshed.
     private decimal refreshAt = 0;
@@ -147,10 +167,11 @@ isolated class WorkloadIdentityAuthProvider {
     private ai:Error? rejectedError = ();
 
     isolated function init(http:Client tokenClient, TokenExchangeParams & readonly exchangeParams,
-            string identityToken) {
+            string identityToken, WorkloadIdentityTimings & readonly timings = {}) {
         self.tokenClient = tokenClient;
         self.exchangeParams = exchangeParams;
         self.identityToken = identityToken;
+        self.timings = timings;
     }
 
     isolated function getHeaders() returns map<string> & readonly|ai:Error {
@@ -161,15 +182,22 @@ isolated class WorkloadIdentityAuthProvider {
     # Returns the cached access token, exchanging the identity token for a new one when the cached access token
     # is about to expire. The exchange runs inside the lock so that concurrent requests trigger only one exchange.
     #
+    # While an exchange runs, every other request through this provider waits for it, even when the cached access
+    # token is still valid. An exchange happens about once per access token lifetime, and if the token endpoint
+    # does not respond, the wait lasts at most the `timeout` of the connection configuration (60 seconds by
+    # default), because the exchange is not retried.
+    #
     # A failed exchange is recorded, so requests queued behind it do not call the token endpoint again. They use
     # the cached access token while it is still valid, or return the recorded error. After an error that may be
-    # temporary, the exchange is tried again after `TOKEN_EXCHANGE_BACKOFF_SECONDS`. After the token endpoint
-    # rejects the identity token, it is never tried again.
+    # temporary, the exchange is tried again after the backoff period. After the token endpoint rejects the
+    # identity token, it is never tried again.
     #
     # + return - The access token, or an `ai:Error` if the exchange fails
     isolated function getAccessToken() returns string|ai:Error {
+        WorkloadIdentityTimings & readonly timings = self.timings;
+        Clock clock = timings.clock;
         lock {
-            decimal now = time:monotonicNow();
+            decimal now = clock();
             string? cachedToken = self.accessToken;
             if cachedToken is string && now < self.refreshAt {
                 return cachedToken;
@@ -182,7 +210,7 @@ isolated class WorkloadIdentityAuthProvider {
                 exchangeIdentityToken(self.tokenClient, self.exchangeParams, self.identityToken);
             if response is ai:Error {
                 // The exchange may have taken a while to fail, so use the current time from here on.
-                decimal failedAt = time:monotonicNow();
+                decimal failedAt = clock();
                 ai:Error exchangeError = response;
                 if isIdentityTokenRejected(response) {
                     exchangeError = error ai:LlmError(string `${response.message()}. The identity token is not `
@@ -190,15 +218,15 @@ isolated class WorkloadIdentityAuthProvider {
                     self.rejectedError = exchangeError;
                 } else {
                     self.lastError = exchangeError;
-                    self.retryAfter = failedAt + TOKEN_EXCHANGE_BACKOFF_SECONDS;
+                    self.retryAfter = failedAt + timings.backoffSeconds;
                 }
                 // Keep using the cached access token while it is still valid.
                 return cachedToken is string && failedAt < self.usableUntil ? cachedToken : exchangeError;
             }
             decimal expiresIn = <decimal>response.expires_in;
             self.accessToken = response.access_token;
-            self.refreshAt = now + expiresIn - decimal:min(TOKEN_REFRESH_BUFFER_SECONDS, expiresIn / 2);
-            self.usableUntil = now + expiresIn - decimal:min(TOKEN_EXPIRY_BUFFER_SECONDS, expiresIn / 4);
+            self.refreshAt = now + expiresIn - decimal:min(timings.refreshBufferSeconds, expiresIn / 2);
+            self.usableUntil = now + expiresIn - decimal:min(timings.expiryBufferSeconds, expiresIn / 4);
             self.lastError = ();
             self.retryAfter = 0;
             return response.access_token;
@@ -209,10 +237,9 @@ isolated class WorkloadIdentityAuthProvider {
 # Creates the authentication provider for the given authentication configuration.
 #
 # + auth - The authentication configuration. A `string` is an OpenAI API key
-# + clientConfig - The HTTP client configuration, used for the token exchange endpoint without its retry
-# configuration
+# + tokenClientConfig - The HTTP client configuration for the token exchange endpoint
 # + return - The authentication provider, or an `ai:Error` if it could not be created
-isolated function createAuthProvider(AuthConfig auth, http:ClientConfiguration clientConfig)
+isolated function createAuthProvider(AuthConfig auth, http:ClientConfiguration tokenClientConfig)
         returns AuthProvider|ai:Error {
     if auth is string {
         // Sent in the `Authorization: Bearer` header, as in 1.x, so existing users see no change on the wire.
@@ -234,9 +261,7 @@ isolated function createAuthProvider(AuthConfig auth, http:ClientConfiguration c
         return new StaticAuthProvider({[AUTHORIZATION_HEADER]: string `Bearer ${auth.token}`});
     }
 
-    // The token exchange is not retried, so that a failing identity token is not sent again and again.
-    var {retryConfig: _, ...tokenClientConfig} = clientConfig;
-    http:Client|error tokenClient = new (auth.tokenUrl, {...tokenClientConfig});
+    http:Client|error tokenClient = new (auth.tokenUrl, tokenClientConfig);
     if tokenClient is error {
         return error ai:Error("Failed to initialize the Workload Identity Federation token client", tokenClient);
     }
@@ -256,6 +281,8 @@ isolated function createAuthProvider(AuthConfig auth, http:ClientConfiguration c
 # + return - The token exchange response, or an `ai:Error` if the exchange fails
 isolated function exchangeIdentityToken(http:Client tokenClient, TokenExchangeParams & readonly exchangeParams,
         string identityToken) returns TokenExchangeResponse|ai:Error {
+    // OpenAI's token endpoint takes the token exchange request as a JSON body. See
+    // https://developers.openai.com/api/docs/guides/workload-identity-federation
     map<json> request = {
         grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
         subject_token: identityToken.trim(),
@@ -304,23 +331,20 @@ isolated function validateApiKey(string apiKey) returns string|ai:Error {
     return trimmed;
 }
 
-# Converts the connection configuration to an HTTP client configuration, used for the token exchange endpoint.
+# Returns the HTTP client configuration for the token exchange endpoint. It keeps the connection settings of the
+# connection configuration, such as the timeout, TLS and proxy, but not its retry, circuit breaker and cache
+# settings, which are meant for requests to the OpenAI API. The token exchange is not retried, so that a failing
+# identity token is not sent again and again.
 #
 # + connectionConfig - The connection configuration
-# + return - The HTTP client configuration
-isolated function toHttpClientConfig(ConnectionConfig connectionConfig) returns http:ClientConfiguration => {
+# + return - The HTTP client configuration for the token exchange endpoint
+isolated function toTokenClientConfig(ConnectionConfig connectionConfig) returns http:ClientConfiguration => {
     httpVersion: connectionConfig.httpVersion,
     http1Settings: connectionConfig.http1Settings ?: {},
     http2Settings: connectionConfig.http2Settings ?: {},
     timeout: connectionConfig.timeout,
-    forwarded: connectionConfig.forwarded,
     poolConfig: connectionConfig.poolConfig,
-    cache: connectionConfig.cache ?: {},
-    compression: connectionConfig.compression,
-    circuitBreaker: connectionConfig.circuitBreaker,
-    retryConfig: connectionConfig.retryConfig,
-    responseLimits: connectionConfig.responseLimits ?: {},
+    cache: {enabled: false},
     secureSocket: connectionConfig.secureSocket,
-    proxy: connectionConfig.proxy,
-    validation: connectionConfig.validation
+    proxy: connectionConfig.proxy
 };

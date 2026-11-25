@@ -57,6 +57,21 @@ isolated function getAuthHeader(string testId, string call, string header) retur
     return value.ensureType();
 }
 
+// The fake clocks of the timing tests, in seconds, keyed by test ID.
+isolated map<decimal> fakeTimes = {};
+
+isolated function fakeNow(string testId) returns decimal {
+    lock {
+        return fakeTimes[testId] ?: 0;
+    }
+}
+
+isolated function advanceFakeClock(string testId, decimal seconds) {
+    lock {
+        fakeTimes[testId] = (fakeTimes[testId] ?: 0) + seconds;
+    }
+}
+
 isolated function getTokenExchangeRequests(string testId) returns map<json>[] {
     lock {
         return (tokenExchangeRequests[testId] ?: []).clone();
@@ -94,9 +109,11 @@ service /auth on new http:Listener(8091) {
 
     // Mock token exchange endpoint. Issues access tokens that expire in `expiresIn` seconds. With `failAfter` > 0,
     // exchanges after the first `failAfter` fail; with -1, every exchange fails. With `failDelay`, a failing
-    // exchange responds after that many seconds. A failing exchange returns a 401, or a 503 with `unavailable`.
+    // exchange responds after that many seconds. With `clockAdvance`, a failing exchange moves the fake clock of the
+    // test forward by that many seconds, as if it took that long. A failing exchange returns a 401, or a 503 with
+    // `unavailable`.
     resource function post oauth/[string testId]/[int expiresIn]/[int failAfter]/token(
-            @http:Payload map<json> payload, decimal? failDelay, boolean unavailable = false)
+            @http:Payload map<json> payload, decimal? failDelay, decimal? clockAdvance, boolean unavailable = false)
             returns json|http:Unauthorized|http:ServiceUnavailable {
         int count;
         lock {
@@ -108,6 +125,9 @@ service /auth on new http:Listener(8091) {
         if failAfter == -1 || (failAfter > 0 && count > failAfter) {
             if failDelay is decimal {
                 runtime:sleep(failDelay);
+            }
+            if clockAdvance is decimal {
+                advanceFakeClock(testId, clockAdvance);
             }
             if unavailable {
                 return <http:ServiceUnavailable>{body: {'error: "temporarily_unavailable"}};
@@ -127,9 +147,15 @@ service /auth on new http:Listener(8091) {
 function authServiceUrl(string testId) returns string => string `${AUTH_SERVICE_URL}/${testId}`;
 
 function tokenUrl(string testId, int expiresIn = 3600, int failAfter = 0, decimal? failDelay = (),
-        boolean unavailable = false) returns string {
+        boolean unavailable = false, decimal? clockAdvance = ()) returns string {
     string url = string `${TOKEN_SERVICE_URL}/${testId}/${expiresIn}/${failAfter}/token?unavailable=${unavailable}`;
-    return failDelay is () ? url : string `${url}&failDelay=${failDelay}`;
+    if failDelay is decimal {
+        url += string `&failDelay=${failDelay}`;
+    }
+    if clockAdvance is decimal {
+        url += string `&clockAdvance=${clockAdvance}`;
+    }
+    return url;
 }
 
 function workloadIdentityConfig(string testId, int expiresIn = 3600, int failAfter = 0,
@@ -353,44 +379,90 @@ function testWorkloadIdentityReusesShortLivedAccessToken() returns error? {
     test:assertEquals(getTokenExchangeRequests(testId).length(), 1);
 }
 
+// The timing tests below create a `WorkloadIdentityAuthProvider` with a fake clock and move the clock forward, so
+// they check when the access token is refreshed, reused and given up without waiting. They use the default timing
+// settings: an access token that expires in 600 seconds is refreshed after 480 seconds, and is used until 570
+// seconds if the refresh fails. After a temporary failure, the token endpoint is not called again for 5 seconds.
+
+function workloadIdentityProvider(string testId, int expiresIn = 600, int failAfter = 0,
+        decimal? clockAdvance = (), decimal? failDelay = (), boolean unavailable = false)
+        returns WorkloadIdentityAuthProvider|error {
+    http:Client tokenClient = check new (tokenUrl(testId, expiresIn, failAfter, failDelay, unavailable,
+        clockAdvance));
+    Clock clock = isolated function() returns decimal => fakeNow(testId);
+    return new (tokenClient, {
+        subject_token_type: JWT,
+        identity_provider_id: IDENTITY_PROVIDER_ID,
+        service_account_id: SERVICE_ACCOUNT_ID
+    }, IDENTITY_TOKEN, {clock});
+}
+
+function getAccessTokensConcurrently(WorkloadIdentityAuthProvider provider, int count) returns (string|ai:Error)[] {
+    future<string|ai:Error>[] calls = [];
+    foreach int i in 0 ..< count {
+        future<string|ai:Error> call = start provider.getAccessToken();
+        calls.push(call);
+    }
+    (string|ai:Error)[] results = [];
+    foreach future<string|ai:Error> call in calls {
+        string|ai:Error result = wait call;
+        results.push(result);
+    }
+    return results;
+}
+
 @test:Config
 function testWorkloadIdentityRefreshesAccessTokenBeforeExpiry() returns error? {
     string testId = "wif-refresh";
-    // A 6-second access token is refreshed after 3 seconds, halfway through its lifetime.
-    ModelProvider provider = check new (workloadIdentityConfig(testId, expiresIn = 6), GPT_4_1,
-        authServiceUrl(testId));
-    _ = check provider->chat([{role: ai:USER, content: "Hi"}]);
-    runtime:sleep(3.5);
-    int _ = check provider->generate(`Pick a number`);
+    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId);
+    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-1`);
+    advanceFakeClock(testId, 479);
+    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-1`);
+    test:assertEquals(getTokenExchangeRequests(testId).length(), 1);
+    advanceFakeClock(testId, 2);
+    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-2`);
     test:assertEquals(getTokenExchangeRequests(testId).length(), 2);
-    check assertAuthHeaders(testId, ["chat"], string `Bearer wif-access-token-${testId}-1`);
-    check assertAuthHeaders(testId, ["generate"], string `Bearer wif-access-token-${testId}-2`);
+}
+
+@test:Config
+function testWorkloadIdentityRefreshesShortLivedAccessTokenHalfwayThrough() returns error? {
+    string testId = "wif-refresh-short-lived";
+    // A 100-second access token is inside the 120-second refresh buffer from the start, so it is refreshed
+    // halfway through its lifetime instead.
+    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId, expiresIn = 100);
+    _ = check provider.getAccessToken();
+    advanceFakeClock(testId, 49);
+    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-1`);
+    advanceFakeClock(testId, 2);
+    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-2`);
 }
 
 @test:Config
 function testWorkloadIdentityUsesCachedTokenWhenRefreshFails() returns error? {
     string testId = "wif-refresh-fails";
-    // A 6-second access token is refreshed after 3 seconds, and used until 4.5 seconds if the refresh fails.
-    // The first exchange succeeds and the rest fail, so the request at 3.5 seconds uses the cached token.
-    ModelProvider provider = check new (workloadIdentityConfig(testId, expiresIn = 6, failAfter = 1), GPT_4_1,
-        authServiceUrl(testId));
-    _ = check provider->chat([{role: ai:USER, content: "Hi"}]);
-    runtime:sleep(3.5);
-    int _ = check provider->generate(`Pick a number`);
+    // The first exchange succeeds and the rest fail. The cached access token is used until 570 seconds.
+    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId, failAfter = 1);
+    _ = check provider.getAccessToken();
+    advanceFakeClock(testId, 481);
+    test:assertEquals(check provider.getAccessToken(), string `wif-access-token-${testId}-1`);
     test:assertEquals(getTokenExchangeRequests(testId).length(), 2);
-    check assertAuthHeaders(testId, ["generate"], string `Bearer wif-access-token-${testId}-1`);
+    advanceFakeClock(testId, 90);
+    string|ai:Error expired = provider.getAccessToken();
+    if expired !is ai:LlmError {
+        test:assertFail("Expected an ai:LlmError once the cached access token is inside the expiry buffer");
+    }
 }
 
 @test:Config
 function testWorkloadIdentityRechecksExpiryAfterRefreshFails() returns error? {
     string testId = "wif-refresh-fails-slowly";
-    // A 6-second access token may be used until 4.5 seconds if a refresh fails. The refresh starts at 3.5 seconds
-    // and fails 2 seconds later, after that point, so the cached token must not be used.
-    ModelProvider provider = check new (workloadIdentityConfig(testId, expiresIn = 6, failAfter = 1, failDelay = 2),
-        GPT_4_1, authServiceUrl(testId));
-    _ = check provider->chat([{role: ai:USER, content: "Hi"}]);
-    runtime:sleep(3.5);
-    ai:ChatAssistantMessage|ai:Error result = provider->chat([{role: ai:USER, content: "Hi"}]);
+    // The refresh starts at 481 seconds and fails 100 seconds later, after the cached access token may be used,
+    // so the cached access token must not be returned.
+    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId, failAfter = 1,
+        clockAdvance = 100);
+    _ = check provider.getAccessToken();
+    advanceFakeClock(testId, 481);
+    string|ai:Error result = provider.getAccessToken();
     if result !is ai:LlmError {
         test:assertFail("Expected an ai:LlmError once the access token is inside the expiry buffer");
     }
@@ -414,18 +486,18 @@ function testWorkloadIdentityDoesNotRetryTokenExchange() returns error? {
 function testWorkloadIdentityStopsExchangingAfterRejection() returns error? {
     string testId = "wif-rejected";
     // A rejected identity token cannot succeed later, so concurrent and later requests return the same error
-    // without calling the token endpoint again.
-    ModelProvider provider = check new (workloadIdentityConfig(testId, failAfter = -1, failDelay = 0.5), GPT_4_1,
-        authServiceUrl(testId));
-    foreach ai:ChatAssistantMessage|ai:Error result in chatConcurrently(provider, 10) {
+    // without calling the token endpoint again. The token endpoint takes 0.2 seconds to fail, so the concurrent
+    // requests wait for the first exchange.
+    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId, failAfter = -1, failDelay = 0.2);
+    foreach string|ai:Error result in getAccessTokensConcurrently(provider, 10) {
         if result !is ai:LlmError {
             test:assertFail("Expected an ai:LlmError");
         }
         test:assertTrue(result.message().includes("Create a new provider with a new identity token"),
             result.message());
     }
-    runtime:sleep(5.5);
-    int|ai:Error later = provider->generate(`Pick a number`);
+    advanceFakeClock(testId, 3600);
+    string|ai:Error later = provider.getAccessToken();
     if later !is ai:LlmError {
         test:assertFail("Expected an ai:LlmError after the backoff period");
     }
@@ -435,27 +507,31 @@ function testWorkloadIdentityStopsExchangingAfterRejection() returns error? {
 @test:Config
 function testWorkloadIdentityBacksOffAfterFailedRefresh() returns error? {
     string testId = "wif-backoff";
-    // An 8-second access token is refreshed after 4 seconds, and used until 6 seconds if the refresh fails. The
-    // token endpoint is unavailable after the first exchange and takes 0.5 seconds to fail.
-    ModelProvider provider = check new (workloadIdentityConfig(testId, expiresIn = 8, failAfter = 1,
-        failDelay = 0.5, unavailable = true), GPT_4_1, authServiceUrl(testId));
-    _ = check provider->chat([{role: ai:USER, content: "Hi"}]);
-    runtime:sleep(4.2);
-    // Concurrent requests in the refresh window make one failed refresh between them and use the cached token.
-    foreach ai:ChatAssistantMessage|ai:Error result in chatConcurrently(provider, 10) {
-        _ = check result;
+    // The token endpoint is unavailable after the first exchange, a failure that may be temporary.
+    WorkloadIdentityAuthProvider provider = check workloadIdentityProvider(testId, failAfter = 1, unavailable = true);
+    _ = check provider.getAccessToken();
+    // At 568 seconds, concurrent requests make one failed refresh between them and use the cached access token.
+    advanceFakeClock(testId, 568);
+    foreach string|ai:Error result in getAccessTokensConcurrently(provider, 10) {
+        test:assertEquals(check result, string `wif-access-token-${testId}-1`);
     }
     test:assertEquals(getTokenExchangeRequests(testId).length(), 2);
-    check assertAuthHeaders(testId, ["chat"], string `Bearer wif-access-token-${testId}-1`);
-    // Once the cached token is past its fallback window, requests inside the backoff period return the
-    // recorded error without calling the token endpoint.
-    runtime:sleep(1.5);
-    ai:ChatAssistantMessage|ai:Error result = provider->chat([{role: ai:USER, content: "Hi"}]);
+    // At 571 seconds, the cached access token is past its fallback window, and the request inside the backoff
+    // period returns the recorded error without calling the token endpoint.
+    advanceFakeClock(testId, 3);
+    string|ai:Error result = provider.getAccessToken();
     if result !is ai:LlmError {
         test:assertFail("Expected the recorded ai:LlmError inside the backoff period");
     }
     test:assertTrue(result.message().includes("status 503"), result.message());
     test:assertEquals(getTokenExchangeRequests(testId).length(), 2);
+    // At 574 seconds, the backoff period is over, and the token endpoint is called again.
+    advanceFakeClock(testId, 3);
+    string|ai:Error retried = provider.getAccessToken();
+    if retried !is ai:LlmError {
+        test:assertFail("Expected an ai:LlmError from the token endpoint");
+    }
+    test:assertEquals(getTokenExchangeRequests(testId).length(), 3);
 }
 
 @test:Config

@@ -69,7 +69,7 @@ public isolated distinct client class ModelProvider {
         self.maxTokens = maxTokens;
         self.reasoning = reasoningEffort;
         self.apiType = apiType;
-        self.authProvider = check createAuthProvider(apiKey, toHttpClientConfig(connectionConfig));
+        self.authProvider = check createAuthProvider(apiKey, toTokenClientConfig(connectionConfig));
 
         // The connector clients are created without `auth`, so that the authentication headers from the
         // `authProvider`, passed with each request, are not overwritten.

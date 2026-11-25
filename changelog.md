@@ -5,9 +5,6 @@ This file documents all significant changes made to the Ballerina ai.openai pack
 ## [Un-released]
 
 ### Added
-- Accept an `ApiKeyConfig`, a `WorkloadIdentityConfig` or an `http:BearerTokenConfig` as well as a `string` in the `apiKey` parameter of `ModelProvider` and `EmbeddingProvider`. Existing code that passes a `string` API key is not affected
-  - `ApiKeyConfig` sends the optional `organization` and `project` in the `OpenAI-Organization` and `OpenAI-Project` headers
-  - `WorkloadIdentityConfig` exchanges an identity token from your identity provider for a short-lived OpenAI access token (Workload Identity Federation), and caches the access token until it is about to expire
 - [Add support for the OpenAI Responses API, selectable through the `apiType` configuration](https://github.com/wso2/product-ballerina-integrator/issues/2457)
 - [Add the current OpenAI model families to `OPEN_AI_MODEL_NAMES`: `gpt-5.6`, `gpt-5.5`, `gpt-5.5-pro`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.4-nano`, `gpt-5.4-pro` and `gpt-5.3-codex`](https://github.com/wso2/product-ballerina-integrator/issues/2457)
 - [Add a `reasoningEffort` initialization parameter for reasoning-capable models, applied on both the Chat Completions (`reasoning_effort`) and the Responses (`reasoning.effort`) APIs, matching `ai.azure`](https://github.com/wso2/product-ballerina-integrator/issues/2457)
@@ -22,6 +19,11 @@ This file documents all significant changes made to the Ballerina ai.openai pack
 - [Remove the ReAct prompting fallback for models without native tool calling. `chatgpt-4o-latest` was the only model that used it, and it is removed above](https://github.com/wso2/product-ballerina-integrator/issues/2457)
 
 ### Updated
+- The `apiKey` parameter of `ModelProvider` and `EmbeddingProvider` now has the type `AuthConfig`, which accepts an `ApiKeyConfig`, a `WorkloadIdentityConfig` or an `http:BearerTokenConfig` as well as a `string`. Existing code that passes a `string` API key still compiles and sends the same request
+  - `ApiKeyConfig` sends the optional `organization` and `project` in the `OpenAI-Organization` and `OpenAI-Project` headers
+  - `WorkloadIdentityConfig` exchanges an identity token from your identity provider for a short-lived OpenAI access token (Workload Identity Federation), and caches the access token until it is about to expire
+  - `http:BearerTokenConfig` sends an access token obtained elsewhere, which is not refreshed
+  - Requires `openai.chat` 5.1.0, `openai.responses` 1.1.0 and `openai.embeddings` 1.1.0 or later, where the `auth` field of `ConnectionConfig` is optional
 - [Update batchEmbed to Validate Chunks at Element Level](https://github.com/ballerina-platform/ballerina-library/issues/8171)
 - [`apiType` now defaults to `CHAT_COMPLETIONS`; the Responses API is opt-in](https://github.com/wso2/product-ballerina-integrator/issues/2457)
 - [Passing `stop` with `apiType = RESPONSES` now returns an `ai:Error` instead of being silently dropped, as the Responses API has no stop-sequence parameter](https://github.com/wso2/product-ballerina-integrator/issues/2457)
