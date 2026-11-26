@@ -39,7 +39,8 @@ public class Generator {
         if (apiType != null && "responses".equals(apiType.getValue())) {
             return env.getRuntime().callFunction(
                     MODULE, "generateLlmResponseViaResponses", null,
-                    modelProvider.get(StringUtils.fromString("responsesClient")),
+                    modelProvider.get(StringUtils.fromString("clientProvider")),
+                    modelProvider.get(StringUtils.fromString("headers")),
                     modelProvider.get(StringUtils.fromString("modelType")),
                     modelProvider.get(StringUtils.fromString("temperature")),
                     modelProvider.get(StringUtils.fromString("maxTokens")),
@@ -50,7 +51,8 @@ public class Generator {
         // Default: Chat Completions (existing behavior)
         return env.getRuntime().callFunction(
                 MODULE, "generateLlmResponse", null,
-                modelProvider.get(StringUtils.fromString("llmClient")),
+                modelProvider.get(StringUtils.fromString("clientProvider")),
+                modelProvider.get(StringUtils.fromString("headers")),
                 modelProvider.get(StringUtils.fromString("modelType")),
                 modelProvider.get(StringUtils.fromString("temperature")),
                 modelProvider.get(StringUtils.fromString("maxTokens")),

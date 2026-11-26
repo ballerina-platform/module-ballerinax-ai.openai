@@ -19,6 +19,11 @@ This file documents all significant changes made to the Ballerina ai.openai pack
 - [Remove the ReAct prompting fallback for models without native tool calling. `chatgpt-4o-latest` was the only model that used it, and it is removed above](https://github.com/wso2/product-ballerina-integrator/issues/2457)
 
 ### Updated
+- The `apiKey` parameter of `ModelProvider` and `EmbeddingProvider` now has the type `AuthConfig`, which accepts an `ApiKeyConfig`, a `WorkloadIdentityConfig` or an `http:BearerTokenConfig` as well as a `string`. Existing code that passes a `string` API key still compiles and sends the same request
+  - `ApiKeyConfig` sends the optional `organization` and `project` in the `OpenAI-Organization` and `OpenAI-Project` headers
+  - `WorkloadIdentityConfig` exchanges an identity token from your identity provider for a short-lived OpenAI access token (Workload Identity Federation), and caches the access token until it is about to expire
+  - `http:BearerTokenConfig` sends an access token obtained elsewhere, which is not refreshed
+  - Requires `openai.embeddings` 1.1.0 or later, which accepts request headers, so that the `OpenAI-Organization` and `OpenAI-Project` headers are sent with embedding requests
 - [Update batchEmbed to Validate Chunks at Element Level](https://github.com/ballerina-platform/ballerina-library/issues/8171)
 - [`apiType` now defaults to `CHAT_COMPLETIONS`; the Responses API is opt-in](https://github.com/wso2/product-ballerina-integrator/issues/2457)
 - [Passing `stop` with `apiType = RESPONSES` now returns an `ai:Error` instead of being silently dropped, as the Responses API has no stop-sequence parameter](https://github.com/wso2/product-ballerina-integrator/issues/2457)
