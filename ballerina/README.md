@@ -1,8 +1,6 @@
 ## Overview
 
-OpenAI provides powerful AI models for natural language processing, image generation, and other advanced tasks.
-
-The OpenAI connector offers APIs for connecting with OpenAI Large Language Models (LLMs), enabling the integration of advanced conversational AI, text generation, and language processing capabilities into applications.
+The `ai.openai` module provides OpenAI-backed `ModelProvider` and `EmbeddingProvider` implementations for the [`ballerina/ai`](https://central.ballerina.io/ballerina/ai/latest) agent framework. Use it to drive OpenAI chat models (GPT-4o, GPT-4, GPT-3.5) and text-embedding models from Ballerina AI agents, RAG pipelines, and other `ai`-module abstractions — rather than calling the OpenAI REST API directly.
 
 ### Key Features
 
